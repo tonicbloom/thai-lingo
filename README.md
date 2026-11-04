@@ -39,5 +39,10 @@ Pull requests are welcome, especially from native Thai speakers checking or addi
 Everything lives in `data.js`. Add words or sentences to a unit, or add a whole new unit object.
 Sentences are space-separated Thai words, written in the male form.
 
+## Releasing an update
+Bump `CACHE` in `sw.js` (and `APP_VERSION` in `app.js`) with every change you push.
+Installed apps check for a new version each time they open and reload automatically
+(after the current lesson, if one is in progress).
+
 ## License
 MIT

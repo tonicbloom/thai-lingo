@@ -9,6 +9,7 @@ const HEART_REFILL_MS = 30 * 60 * 1000; // one heart every 30 minutes
 const DAILY_GOAL = 30;
 const LESSONS_PER_UNIT = 3;
 const STORE_KEY = "thai-lingo-v1";
+const APP_VERSION = "1.4"; // shown in Profile; bump with CACHE in sw.js
 
 /* ---------- Content index ---------- */
 const WORDS = [];
@@ -481,6 +482,8 @@ function renderHome() {
   if (drill) drill.onclick = startSpeakDrill;
   const wdrill = $("#wdrill");
   if (wdrill) wdrill.onclick = startWriteDrill;
+  const upd = $("#update");
+  if (upd) upd.onclick = () => forceUpdate(upd);
   const reset = $("#reset");
   if (reset) reset.onclick = () => {
     if (confirm("Reset ALL progress? This cannot be undone.")) { S = { ...DEFAULT_STATE, heartTime: Date.now() }; save(); tab = "learn"; renderHome(); }
@@ -575,6 +578,7 @@ function profileView() {
     <div class="setting"><div><b>Speaking exercises</b><small>${!speakSupported() ? "Not supported in this browser — use Chrome or Safari" : S.speakOffUntil > Date.now() ? `Paused for ${Math.ceil((S.speakOffUntil - Date.now()) / 60000)} more min (“Can't speak now”)` : "Say words out loud and get your pronunciation checked"}</small></div>${seg("speakOn", [["true", "On"], ["false", "Off"]])}</div>
     <div class="setting"><div><b>Sound effects</b><small>Correct/wrong sounds and the lesson-complete fanfare. On iPhone, Silent mode mutes these.</small></div>${seg("sound", [["true", "On"], ["false", "Off"]])}</div>
     <div class="setting"><div><b>Thai voice</b><small>${hasAudio() ? `Using: ${esc(thaiVoice.name)}` : "Not found — listening exercises off"}</small></div><button class="speak-btn" data-say="สวัสดีครับ">🔊</button></div>
+    <div class="setting"><div><b>App version ${APP_VERSION}</b><small>Updates install automatically. Tap if something looks out of date — your progress is kept.</small></div><button id="update" class="btn" style="width:auto;padding:8px 12px;font-size:13px">Check for updates</button></div>
     <div class="setting"><div><b>Reset progress</b><small>Start the course over</small></div><button id="reset" class="btn bad" style="width:auto;padding:8px 14px;font-size:13px">Reset</button></div>
     <p class="rom" style="text-align:center;margin-top:20px">Tone marks: à low · â falling · á high · ǎ rising · no mark = mid</p>`;
 }
@@ -644,7 +648,7 @@ function outOfHearts() {
 
 function quitLesson() {
   const m = modal(`<h2>Wait, don't go! 🐘</h2><p>You'll lose your progress in this lesson if you quit now.</p><button class="btn" data-close>Keep learning</button><button class="btn ghost" id="quit">Quit lesson</button>`);
-  $("#quit", m).onclick = () => { m.remove(); stopRecognizing(); speechSynthesis?.cancel(); L = null; renderHome(); };
+  $("#quit", m).onclick = () => { m.remove(); stopRecognizing(); speechSynthesis?.cancel(); L = null; renderHome(); applyUpdateIfIdle(); };
 }
 
 function lessonShell(inner, footer) {
@@ -1141,7 +1145,7 @@ function finishLesson() {
       </div>
       <button class="btn" id="cont">Continue</button>
     </div>`;
-  $("#cont").onclick = () => { L = null; renderHome.scrolled = false; tab = "learn"; renderHome(); };
+  $("#cont").onclick = () => { L = null; renderHome.scrolled = false; tab = "learn"; renderHome(); applyUpdateIfIdle(); };
 }
 
 /* ---------- Keyboard: Enter = check/continue, 1-4 = choose ---------- */
@@ -1158,9 +1162,44 @@ document.addEventListener("keydown", (e) => {
   if (keyHandler && !$("#next") && /^[1-9]$/.test(e.key)) keyHandler(e);
 });
 
+/* ---------- Updates ---------- */
+// The service worker checks for a new version whenever the app opens or comes back
+// to the screen. When one is installed we reload — right away if you're not in a
+// lesson, otherwise as soon as the lesson ends.
+let swReg = null;
+let updatePending = false;
+function applyUpdateIfIdle() {
+  if (updatePending && !L) { updatePending = false; location.reload(); }
+}
+function setupUpdates() {
+  if (!("serviceWorker" in navigator)) return;
+  if (location.protocol !== "https:" && location.hostname !== "localhost") return;
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!hadController) return; // first install, nothing old to replace
+    updatePending = true;
+    applyUpdateIfIdle();
+  });
+  navigator.serviceWorker.register("sw.js").then((reg) => {
+    swReg = reg;
+    const check = () => reg.update().catch(() => {});
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") check(); });
+    setInterval(check, 30 * 60 * 1000);
+  }).catch(() => {});
+}
+
+// Manual "Check for updates": ask for a new version, then clear saved files and reload.
+async function forceUpdate(btn) {
+  if (btn) { btn.disabled = true; btn.textContent = "Updating…"; }
+  try { if (swReg) await swReg.update(); } catch {}
+  try { if ("caches" in window) for (const k of await caches.keys()) await caches.delete(k); } catch {}
+  location.reload();
+}
+
 /* ---------- Boot ---------- */
 if ("scrollRestoration" in history) history.scrollRestoration = "manual";
 renderHome();
+setupUpdates();
 // Voices load asynchronously in some browsers — re-render once they arrive
 if ("speechSynthesis" in window) {
   speechSynthesis.addEventListener("voiceschanged", () => { findVoice(); if (!L) renderHome(); });
