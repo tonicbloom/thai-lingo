@@ -400,3 +400,15 @@ button, .tile, .choice, .node { touch-action: manipulation; -webkit-user-select:
 .class-legend .cls-mid::before { background: #14b8a6; }
 .class-legend .cls-high::before { background: #f97316; }
 .class-legend .cls-low::before { background: #8b5cf6; }
+
+/* ---------- Vowels & tone marks ---------- */
+.letter-hint { font-size: 14px; color: var(--muted); margin: -8px 0 8px; }
+.letter-option.wide { font-size: 36px !important; }
+.set-letters.wide { flex-wrap: wrap; gap: 4px 10px; font-size: 24px; }
+.word-say { width: auto !important; min-width: 80px; padding: 0 12px; }
+.word-say .thai { font-size: 22px; color: var(--ink); }
+.letter-grid.wide { grid-template-columns: repeat(5, 1fr); }
+.letter-grid.wide .letter-cell .thai { font-size: 21px; }
+.letter-cell.kind-vowel { border-bottom: 4px solid #0ea5e9; }
+.letter-cell.kind-tone { border-bottom: 4px solid #e11d48; }
+.letter-modal .en { font-size: 18px; margin: 8px 0 6px; }

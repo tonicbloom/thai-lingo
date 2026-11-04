@@ -2,7 +2,7 @@
 // Always asks the server for the newest files first (revalidating, so GitHub's
 // 10-minute cache can't serve stale code) and falls back to the saved copy offline.
 // Bump CACHE on every release: that's what tells installed apps to update.
-const CACHE = "thai-lingo-v5";
+const CACHE = "thai-lingo-v6";
 const FILES = ["./", "index.html", "style.css", "app.js", "data.js", "letters.js", "manifest.json",
   "icons/apple-touch-icon.png", "icons/icon-192.png", "icons/icon-512.png"];
 

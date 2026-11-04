@@ -53,29 +53,106 @@ const LETTER_ROWS = [
   ["ฮ", "นกฮูก", "haw nók-hûuk", "h", "owl", "low"],
 ];
 
-const LETTERS = LETTER_ROWS.map(([ch, word, rom, sound, meaning, cls]) => ({
-  id: "L:" + ch,
-  ch, word, rom, sound, meaning, cls,
-  // fields so the shared choice/feedback code can display letters like words
+const LETTERS = LETTER_ROWS.map(([ch, word, rom, sound, meaning, cls]) => {
+  const snd = sound === "silent / a vowel holder" ? "silent" : `“${sound}”`;
+  return {
+    id: "L:" + ch, kind: "consonant",
+    ch, word, rom, sound, meaning, cls,
+    // fields so the shared choice/feedback code can display letters like words
+    th: ch,
+    en: `${snd} sound · ${meaning}`,
+    say: `${ch}อ ${word}`, // e.g. "กอ ไก่" — how Thais say the letter's name
+    optLabel: `<b>${sound === "silent / a vowel holder" ? "silent" : sound}</b> <span class="rom">${rom}</span> · ${meaning}`,
+    question: `Which letter is ${snd} as in ${meaning}?`,
+    traceLabel: `<b>${rom}</b> · ${snd} · ${meaning}`,
+  };
+});
+
+// Vowels, written around the placeholder อ to show where they sit.
+// [form, sound, length, example word, example romanization, meaning, pronunciation hint]
+const VOWEL_ROWS = [
+  ["อา", "aa", "long", "ตา", "dtaa", "eye", "like “a” in father"],
+  ["อี", "ii", "long", "ดี", "dii", "good", "like “ee” in see"],
+  ["อู", "uu", "long", "งู", "nguu", "snake", "like “oo” in moon"],
+  ["โอ", "oo", "long", "โต", "dtoo", "big", "like “o” in go (no w at the end)"],
+  ["เอ", "ee", "long", "เท", "thee", "to pour", "like “ay” in say (no y at the end)"],
+  ["แอ", "ae", "long", "แม่", "mâe", "mother", "like “a” in cat, held long"],
+  ["อะ", "a", "short", "จะ", "jà", "will (future)", "short “a” as in but"],
+  ["อิ", "i", "short", "กิน", "gin", "to eat", "short “i” as in sit"],
+  ["อุ", "u", "short", "ทุก", "thúk", "every", "short “u” as in put"],
+  ["โอะ", "o", "short", "โต๊ะ", "dtó", "table", "short “o”, clipped"],
+  ["เอะ", "e", "short", "เตะ", "dtè", "to kick", "short “e” as in bet"],
+  ["แอะ", "ae", "short", "แกะ", "gàe", "sheep", "short “a” as in cat"],
+  ["ออ", "aw", "long", "พอ", "phaw", "enough", "like “aw” in saw"],
+  ["เอาะ", "aw", "short", "เกาะ", "gàw", "island", "short “aw”, clipped"],
+  ["อือ", "ʉʉ", "long", "มือ", "mʉʉ", "hand", "say “ee” but with your tongue pulled back — no English match"],
+  ["อึ", "ʉ", "short", "ดึก", "dʉ̀k", "late at night", "short version of ʉʉ"],
+  ["เออ", "əə", "long", "เธอ", "thəə", "you / she", "like “ur” in burn (no r)"],
+  ["เออะ", "ə", "short", "เลอะ", "lə́", "messy", "short “uh”"],
+  ["ไอ", "ai", "special", "ไป", "bpai", "to go", "like “i” in bike — the most common way to write ai"],
+  ["ใอ", "ai", "special", "ใจ", "jai", "heart / mind", "same sound as ไ — used in only 20 words"],
+  ["อำ", "am", "special", "ทำ", "tham", "to do", "like “um” in drum"],
+  ["เอา", "ao", "special", "เขา", "khǎo", "he / she", "like “ow” in cow"],
+  ["เอีย", "ia", "special", "เรียน", "rian", "to study", "“ee-ah” glided together"],
+  ["เอือ", "ʉa", "special", "เรือ", "rʉa", "boat", "ʉʉ gliding into “ah”"],
+  ["อัว", "ua", "special", "ตัว", "dtua", "body", "“oo-ah” glided together"],
+];
+const VOWELS = VOWEL_ROWS.map(([ch, sound, length, word, wordRom, meaning, hint]) => {
+  const len = length === "special" ? "" : ` (${length})`;
+  return {
+    id: "V:" + ch, kind: "vowel",
+    ch, sound, length, word, wordRom, meaning, hint, rom: sound,
+    th: ch,
+    en: `“${sound}”${len} · as in ${word} ${wordRom} (${meaning})`,
+    say: ch,
+    optLabel: `<b>${sound}</b>${len}`,
+    question: `Which vowel sounds like “${sound}”${len}?`,
+    traceLabel: `<b>${sound}</b>${len} · as in <span class="thai">${word}</span> ${wordRom}`,
+  };
+});
+
+// Tone marks. Their effect shown here is for mid-class consonants (like อ, ก, ป, ต).
+const TONE_ROWS = [
+  ["อ่", "mái èek", "low", "ป่า", "bpàa", "forest"],
+  ["อ้", "mái thoo", "falling", "ป้า", "bpâa", "aunt (older)"],
+  ["อ๊", "mái dtrii", "high", "โต๊ะ", "dtó", "table"],
+  ["อ๋", "mái jàt-dtà-waa", "rising", "ตั๋ว", "dtǔa", "ticket"],
+];
+const TONES = TONE_ROWS.map(([ch, rom, tone, word, wordRom, meaning]) => ({
+  id: "T:" + ch, kind: "tone",
+  ch, rom, sound: `${tone} tone`, tone, word, wordRom, meaning,
   th: ch,
-  en: `${sound === "silent / a vowel holder" ? "silent" : `“${sound}”`} sound · ${meaning}`,
-  say: `${ch}อ ${word}`, // e.g. "กอ ไก่" — how Thais say the letter's name
+  en: `${tone} tone (on mid-class letters) · as in ${word} ${wordRom} (${meaning})`,
+  say: word,
+  optLabel: `<b>${tone} tone</b> <span class="rom">${rom}</span>`,
+  question: `Which mark gives a mid-class letter a ${tone} tone?`,
+  traceLabel: `<b>${rom}</b> · ${tone} tone · <span class="thai">${word}</span> ${wordRom}`,
 }));
-const LETTER_BY = Object.fromEntries(LETTERS.map((l) => [l.ch, l]));
+
+const ALL_LETTERS = [...LETTERS, ...VOWELS, ...TONES];
+const LETTER_BY = Object.fromEntries(ALL_LETTERS.map((l) => [l.ch, l]));
 
 // Learning order: most useful letters first, rare ones last.
+// (Order matters: progress is saved by position, so add new sets at the end.)
 const LETTER_SETS = [
-  { title: "Set 1", letters: "ก ค ง ด ต น" },
-  { title: "Set 2", letters: "บ ป ม ย ร ล" },
-  { title: "Set 3", letters: "ว อ ห ส ช ท" },
-  { title: "Set 4", letters: "ข จ ผ ฝ พ ฟ" },
-  { title: "Set 5", letters: "ถ ซ ฉ ญ ภ ศ" },
-  { title: "Set 6", letters: "ษ ธ ฆ ณ ฮ ฬ" },
-  { title: "Set 7", letters: "ฎ ฏ ฐ ฑ ฒ ฌ" },
+  { group: "consonant", title: "Set 1", letters: "ก ค ง ด ต น" },
+  { group: "consonant", title: "Set 2", letters: "บ ป ม ย ร ล" },
+  { group: "consonant", title: "Set 3", letters: "ว อ ห ส ช ท" },
+  { group: "consonant", title: "Set 4", letters: "ข จ ผ ฝ พ ฟ" },
+  { group: "consonant", title: "Set 5", letters: "ถ ซ ฉ ญ ภ ศ" },
+  { group: "consonant", title: "Set 6", letters: "ษ ธ ฆ ณ ฮ ฬ" },
+  { group: "consonant", title: "Set 7", letters: "ฎ ฏ ฐ ฑ ฒ ฌ" },
+  { group: "vowel", title: "Long vowels", letters: "อา อี อู โอ เอ แอ" },
+  { group: "vowel", title: "Short vowels", letters: "อะ อิ อุ โอะ เอะ แอะ" },
+  { group: "vowel", title: "More vowels", letters: "ออ เอาะ อือ อึ เออ เออะ" },
+  { group: "vowel", title: "Combo vowels", letters: "ไอ ใอ อำ เอา เอีย เอือ อัว" },
+  { group: "tone", title: "Tone marks", letters: "อ่ อ้ อ๊ อ๋" },
 ].map((s) => ({ ...s, letters: s.letters.split(" ").map((c) => LETTER_BY[c]) }));
 
 // Letters that are easy to confuse — used as tricky wrong answers.
-const LOOKALIKES = ["ก ถ ภ ฦ", "ข ช ซ", "ค ด ศ ต", "บ ป ษ ย", "ผ ฝ พ ฟ", "ม น ฆ", "ว ร ธ", "ท ฑ ห", "อ ฮ ฮ", "ฎ ฏ ฐ ฎ", "ล ส ฬ", "ง จ", "ญ ฌ ณ"]
+const LOOKALIKES = ["ก ถ ภ ฦ", "ข ช ซ", "ค ด ศ ต", "บ ป ษ ย", "ผ ฝ พ ฟ", "ม น ฆ", "ว ร ธ", "ท ฑ ห", "อ ฮ ฮ", "ฎ ฏ ฐ ฎ", "ล ส ฬ", "ง จ", "ญ ฌ ณ",
+  // vowels: short/long partners and similar shapes
+  "อะ อา อำ", "อิ อี อึ อือ", "อุ อู", "เอะ เอ เออ", "แอะ แอ", "โอะ โอ", "เอาะ ออ เอา", "เออะ เออ", "ไอ ใอ", "เอีย เอือ อัว"]
   .map((g) => g.split(" "));
 
 const CLASS_NOTE = {
@@ -169,15 +246,55 @@ function createPad(host, { guide, ch }) {
 }
 
 // Draw a letter centered in a square box.
+// Just the tone mark of e.g. "อ๋": draw it on อ, then erase the อ.
+// (Drawing a mark alone makes fonts show a dotted-circle placeholder.)
+function markOnly(full, color) {
+  const W = 600, c = document.createElement("canvas");
+  c.width = c.height = W;
+  const x = c.getContext("2d");
+  x.font = `${W * 0.6}px ${GLYPH_FONT}`;
+  x.fillStyle = "#000";
+  x.fillText(full, W * 0.2, W * 0.8);
+  x.globalCompositeOperation = "destination-out";
+  x.lineWidth = 6;
+  x.fillText(full[0], W * 0.2, W * 0.8);
+  x.strokeText(full[0], W * 0.2, W * 0.8);
+  x.globalCompositeOperation = "source-in";
+  x.fillStyle = color;
+  x.fillRect(0, 0, W, W);
+  // find the remaining ink
+  const d = x.getImageData(0, 0, W, W).data;
+  let x0 = W, y0 = W, x1 = -1, y1 = -1;
+  for (let yy = 0; yy < W; yy += 2) for (let xx = 0; xx < W; xx += 2)
+    if (d[(yy * W + xx) * 4 + 3] > 40) { if (xx < x0) x0 = xx; if (xx > x1) x1 = xx; if (yy < y0) y0 = yy; if (yy > y1) y1 = yy; }
+  return { canvas: c, box: x1 < 0 ? null : { x: x0, y: y0, w: x1 - x0 + 2, h: y1 - y0 + 2 } };
+}
+
 function drawGlyph(ctx, ch, size, color) {
+  if (ch.startsWith("MARK:")) {
+    const { canvas, box } = markOnly(ch.slice(5), color);
+    if (!box) return;
+    const k = Math.min((size * 0.6) / box.h, (size * 0.6) / box.w);
+    const w = box.w * k, h = box.h * k;
+    ctx.drawImage(canvas, box.x, box.y, box.w, box.h, (size - w) / 2, (size - h) / 2, w, h);
+    return;
+  }
   ctx.save();
   ctx.fillStyle = color;
-  ctx.textAlign = "center";
+  ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
-  ctx.font = `${Math.round(size * 0.62)}px ${GLYPH_FONT}`;
-  const m = ctx.measureText(ch);
-  const asc = m.actualBoundingBoxAscent || size * 0.45, desc = m.actualBoundingBoxDescent || 0;
-  ctx.fillText(ch, size / 2, size / 2 + (asc - desc) / 2);
+  const base = size * 0.62;
+  ctx.font = `${base}px ${GLYPH_FONT}`;
+  let m = ctx.measureText(ch);
+  const inkW = (m.actualBoundingBoxLeft + m.actualBoundingBoxRight) || base * 0.6;
+  const inkH = (m.actualBoundingBoxAscent + m.actualBoundingBoxDescent) || base * 0.7;
+  // scale so the letter's ink fills about 60% of the height or 80% of the width
+  const fs = base * Math.min((size * 0.6) / inkH, (size * 0.8) / inkW, 3);
+  ctx.font = `${fs}px ${GLYPH_FONT}`;
+  m = ctx.measureText(ch);
+  const x = size / 2 - (m.actualBoundingBoxRight - m.actualBoundingBoxLeft) / 2;
+  const y = size / 2 + (m.actualBoundingBoxAscent - m.actualBoundingBoxDescent) / 2;
+  ctx.fillText(ch, x, y);
   ctx.restore();
 }
 
@@ -259,11 +376,11 @@ const WRITE_PASS = 0.59; // from memory is a little more forgiving
 function letterDistractors(letter, n) {
   const group = LOOKALIKES.find((g) => g.includes(letter.ch)) || [];
   const tricky = shuffle(group.filter((c) => c !== letter.ch && LETTER_BY[c])).map((c) => LETTER_BY[c]);
-  const others = shuffle(LETTERS.filter((l) => l !== letter && !tricky.includes(l) && l.sound !== letter.sound));
+  const others = shuffle(ALL_LETTERS.filter((l) => l.kind === letter.kind && l !== letter && !tricky.includes(l)));
   const out = [];
   for (const l of [...tricky, ...others]) {
     if (out.length >= n) break;
-    if (l.sound === letter.sound && l !== letter) continue; // avoid two right answers
+    if (l.sound === letter.sound) continue; // avoid two right answers (e.g. ไ and ใ are both "ai")
     if (!out.includes(l)) out.push(l);
   }
   return out;
@@ -291,7 +408,7 @@ function buildLetterLesson(setIdx) {
 }
 
 function buildHandwritingDrill() {
-  const learned = LETTERS.filter(letterSeen);
+  const learned = ALL_LETTERS.filter(letterSeen);
   if (!learned.length) return null;
   return shuffle(learned).slice(0, 8).map((l) => ({ type: "trace", word: l, guide: false }));
 }
@@ -312,25 +429,58 @@ function startSingleLetter(letter) {
   renderExercise();
 }
 
-/* ----- Intro card for a letter ----- */
+const KIND_NAME = { consonant: "letter", vowel: "vowel", tone: "tone mark" };
+// What gets drawn on the pad: lone tone marks are drawn without the อ so the
+// mark itself is what you trace (otherwise the อ would do all the work).
+const traceTarget = (l) => (l.kind === "tone" ? "MARK:" + l.ch : l.ch);
+
+/* ----- Intro cards ----- */
+function letterInfoHtml(l) {
+  if (l.kind === "vowel") {
+    const len = l.length === "special" ? "combo vowel" : `${l.length} vowel`;
+    return `
+      <span class="rom">${l.sound}</span>
+      <div class="en">Sounds like: <b>${esc(l.sound)}</b> · ${len}</div>
+      <div class="letter-hint">${esc(l.hint)}</div>
+      <div class="letter-word">e.g. <span class="thai">${l.word}</span> ${l.wordRom} = ${esc(l.meaning)}</div>`;
+  }
+  if (l.kind === "tone") {
+    return `
+      <span class="rom">${l.rom}</span>
+      <div class="en">Gives a <b>${l.tone} tone</b> on mid-class letters</div>
+      <div class="letter-word">e.g. <span class="thai">${l.word}</span> ${l.wordRom} = ${esc(l.meaning)}</div>`;
+  }
+  return `
+    <span class="rom">${l.rom}</span>
+    <div class="en">Sound: <b>${esc(l.sound)}</b></div>
+    <div class="letter-word"><span class="thai">${l.word}</span> = ${esc(l.meaning)}</div>`;
+}
+const LETTER_TIPS = {
+  consonant: (l) => `Each letter has a picture word, like “A for apple”. Thais say <b>${l.rom}</b> to name it.`,
+  vowel: () => `The <span class="thai">อ</span> is just a placeholder showing where the vowel sits. Vowels can go before, after, above or below a consonant — but you always <b>say the consonant first</b>.`,
+  tone: () => `Tone marks sit above the consonant. On mid-class letters (teal in the chart): no mark = mid, <span class="thai">่</span> low, <span class="thai">้</span> falling, <span class="thai">๊</span> high, <span class="thai">๋</span> rising. Other classes work a bit differently — that's a later lesson.`,
+};
+
 function renderLetterIntro(ex) {
   const l = ex.word;
+  const badge = l.kind === "consonant" ? `NEW LETTER · ${CLASS_NOTE[l.cls].toUpperCase()}`
+    : l.kind === "vowel" ? `NEW VOWEL · ${l.length === "special" ? "COMBO" : l.length.toUpperCase()}` : "NEW TONE MARK";
   lessonShell(`
-    <div class="prompt-title">New letter!</div>
+    <div class="prompt-title">New ${KIND_NAME[l.kind]}!</div>
     <div class="intro">
-      <span class="badge">NEW LETTER · ${CLASS_NOTE[l.cls].toUpperCase()}</span>
+      <span class="badge">${badge}</span>
       <div class="big thai letter-big">${l.ch}</div>
-      <span class="rom">${l.rom}</span>
-      <div class="en">Sound: <b>${esc(l.sound)}</b></div>
-      <div class="letter-word"><span class="thai">${l.word}</span> = ${esc(l.meaning)}</div>
+      ${letterInfoHtml(l)}
       <div class="speak-row">
         <button class="speak-btn speak-big" id="say">🔊</button>
         <button class="speak-btn slow speak-big" id="slow" style="width:80px">🐢</button>
+        ${l.kind === "vowel" ? `<button class="speak-btn slow speak-big word-say" id="sayword"><span class="thai">${l.word}</span></button>` : ""}
       </div>
-      <p class="letter-tip">Each letter has a picture word, like “A for apple”. Thais say <b>${l.rom}</b> to name it.</p>
+      <p class="letter-tip">${LETTER_TIPS[l.kind](l)}</p>
     </div>`, `<button class="btn" id="next">Continue</button>`);
   $("#say").onclick = () => speak(l.say);
   $("#slow").onclick = () => speak(l.say, true);
+  if (l.kind === "vowel") $("#sayword").onclick = () => speak(l.word);
   speak(l.say);
   $("#next").onclick = () => { markLetterSeen(l); L.progress++; L.i++; renderExercise(); };
 }
@@ -338,20 +488,25 @@ function renderLetterIntro(ex) {
 /* ----- Choice quizzes ----- */
 function renderLetterSound(ex) {
   const l = ex.word;
+  const title = l.kind === "vowel" ? "What does this vowel sound like?"
+    : l.kind === "tone" ? "Which tone does this mark give (on a mid-class letter)?" : "What sound does this letter make?";
   choiceExercise(ex, {
-    title: "What sound does this letter make?",
+    title,
     prompt: `<div class="letter-prompt thai">${l.ch}</div>`,
-    optionHtml: (o) => `<span><b>${esc(o.sound)}</b> <span class="rom">${o.rom}</span> · ${esc(o.meaning)}</span>`,
+    optionHtml: (o) => `<span>${o.optLabel}</span>`,
     onRender: () => {},
   });
 }
 function renderSoundLetter(ex) {
   const l = ex.word;
+  const hint = l.kind === "consonant" ? `<span class="rom" style="font-size:16px">${l.rom}</span><span class="en-hint thai">${l.word}</span>`
+    : l.kind === "vowel" ? `<span class="rom" style="font-size:16px">${l.sound}</span>`
+    : `<span class="rom" style="font-size:16px">${l.wordRom}</span><span class="en-hint">${esc(l.meaning)}</span>`;
   choiceExercise(ex, {
-    title: `Which letter is “${esc(l.sound)}” as in ${esc(l.meaning)}?`,
-    prompt: `<div class="speech"><div class="mascot">🐘</div><div class="bubble"><button class="speak-btn" id="say">🔊</button><div><span class="rom" style="font-size:16px">${l.rom}</span><span class="en-hint thai">${l.word}</span></div></div></div>`,
+    title: esc(l.question),
+    prompt: `<div class="speech"><div class="mascot">🐘</div><div class="bubble"><button class="speak-btn" id="say">🔊</button><div>${hint}</div></div></div>`,
     grid: true,
-    optionHtml: (o) => `<span class="thai letter-option">${o.ch}</span>`,
+    optionHtml: (o) => `<span class="thai letter-option ${o.kind !== "consonant" ? "wide" : ""}">${o.ch}</span>`,
     onRender: () => { $("#say").onclick = () => speak(l.say); speak(l.say); },
   });
 }
@@ -360,11 +515,15 @@ function renderSoundLetter(ex) {
 function renderTrace(ex) {
   const l = ex.word;
   const guide = ex.guide;
+  const kind = KIND_NAME[l.kind];
+  const startTip = l.kind === "tone" ? "Draw just the tone mark, nice and big. (It sits above the letter.)"
+    : l.kind === "vowel" ? "Trace the อ too — it shows where the vowel sits."
+    : "Start at the little circle (the “head”) if the letter has one.";
   lessonShell(`
-    <div class="prompt-title">${guide ? "Trace the letter" : "Write the letter from memory"}</div>
+    <div class="prompt-title">${guide ? `Trace the ${kind}` : `Write the ${kind} from memory`}</div>
     <div class="trace-head">
       <button class="speak-btn" id="say">🔊</button>
-      <div>${guide ? `<span class="thai trace-ch">${l.ch}</span> ` : ""}<b>${l.rom}</b> · “${esc(l.sound)}” · ${esc(l.meaning)}</div>
+      <div>${guide ? `<span class="thai trace-ch">${l.ch}</span> ` : ""}${l.traceLabel}</div>
     </div>
     <div class="pad-host" id="pad"></div>
     <div class="pad-tools">
@@ -372,10 +531,10 @@ function renderTrace(ex) {
       <button class="btn ghost" id="clear">✕ Clear</button>
       ${guide ? "" : `<button class="btn ghost" id="hint">💡 Hint</button>`}
     </div>
-    <div class="heard" id="pad-msg">${guide ? "Start at the little circle (the “head”) if the letter has one." : "Draw it big in the box. Tap 💡 if you're stuck."}</div>`, checkFooter());
+    <div class="heard" id="pad-msg">${guide ? startTip : `Draw it big in the box. Tap 💡 if you're stuck.${l.kind === "tone" ? " Just the mark — no อ needed." : ""}`}</div>`, checkFooter());
   $("#say").onclick = () => speak(l.say);
   speak(l.say);
-  const pad = createPad($("#pad"), { guide, ch: l.ch });
+  const pad = createPad($("#pad"), { guide, ch: traceTarget(l) });
   const msg = $("#pad-msg");
   let attempts = 0, hinted = false;
   pad.onchange = () => ($("#check").disabled = pad.isEmpty());
@@ -386,7 +545,8 @@ function renderTrace(ex) {
     const r = pad.score();
     if (r.empty) return;
     if (r.tooSmall) { msg.className = "heard off"; msg.textContent = "Draw it bigger — fill most of the box."; return; }
-    const pass = guide || hinted ? TRACE_PASS : WRITE_PASS;
+    // Tone marks are simple shapes (้ and ๊ look alike once scaled up), so they need a closer match.
+    const pass = l.kind === "tone" ? (guide || hinted ? 0.74 : 0.7) : guide || hinted ? TRACE_PASS : WRITE_PASS;
     const pct = Math.round(r.score * 100);
     attempts++;
     if (r.score >= pass) {
@@ -398,10 +558,10 @@ function renderTrace(ex) {
     if (attempts >= 3) {
       pad.locked = true;
       pad.showAnswer(false);
-      return feedback(false, ex, `<span class="thai">${l.ch}</span> ${l.rom} — compare your drawing with the red letter`, false, { noPenalty: true, noRetry: true });
+      return feedback(false, ex, `<span class="thai">${l.ch}</span> ${l.rom} — compare your drawing with the red ${kind}`, false, { noPenalty: true, noRetry: true });
     }
     msg.className = `heard ${r.score >= pass - 0.15 ? "close" : "off"}`;
-    msg.textContent = `${r.score >= pass - 0.15 ? "👍 Close!" : "🔁 Not quite."} ${pct}% match — attempt ${attempts} of 3. Clear and try again${guide ? ", following the faint letter" : ""}.`;
+    msg.textContent = `${r.score >= pass - 0.15 ? "👍 Close!" : "🔁 Not quite."} ${pct}% match — attempt ${attempts} of 3. Clear and try again${guide ? `, following the faint ${kind}` : ""}.`;
     if (!guide && attempts >= 2 && !hinted) { pad.showGuide(true); hinted = true; msg.textContent += " (Hint shown.)"; }
   };
 }
@@ -409,33 +569,44 @@ function renderTrace(ex) {
 /* =========================================================
    Letters tab
    ========================================================= */
+const SECTION_INFO = {
+  consonant: ["Consonants", "42 letters in 7 sets — most useful first."],
+  vowel: ["Vowels", "Written around the consonant. อ shows where they go."],
+  tone: ["Tone marks", "Small marks above a letter that change its pitch."],
+};
+
 function lettersView() {
-  const learned = LETTERS.filter(letterSeen).length;
-  const pct = Math.round((learned / LETTERS.length) * 100);
+  const learned = ALL_LETTERS.filter(letterSeen).length;
+  const pct = Math.round((learned / ALL_LETTERS.length) * 100);
   let html = `
     <div class="goal-card">
       <div class="mascot thai" style="font-size:44px;color:var(--brand)">ก</div>
       <div class="goal-text">
-        <b>Thai alphabet: ${learned} / ${LETTERS.length} letters</b>
+        <b>Thai alphabet: ${learned} / ${ALL_LETTERS.length}</b>
         <div class="bar"><div style="width:${pct}%;background:var(--brand)"></div></div>
       </div>
     </div>
     <div class="drills" style="grid-template-columns:1fr">
-      <button class="drill-card write" id="hdrill"><span>✍️</span><b>Handwriting drill</b><small>Write letters you've learned from memory</small></button>
-    </div>
-    <div class="section-title" style="margin-top:18px">Letter sets</div>`;
-  LETTER_SETS.forEach((s, i) => {
-    const done = setDone(i);
-    html += `<button class="set-card ${done ? "done" : ""}" data-set-idx="${i}">
-      <div class="set-letters thai">${s.letters.map((l) => `<span class="${letterSeen(l) ? "seen" : ""}">${l.ch}</span>`).join("")}</div>
-      <div class="set-meta"><b>${s.title}</b><small>${done ? "✓ Done · tap to review" : "Tap to learn"}</small></div>
-    </button>`;
+      <button class="drill-card write" id="hdrill"><span>✍️</span><b>Handwriting drill</b><small>Write letters, vowels and tone marks you've learned from memory</small></button>
+    </div>`;
+  ["consonant", "vowel", "tone"].forEach((group) => {
+    const [title, sub] = SECTION_INFO[group];
+    html += `<div class="section-title" style="margin-top:20px">${title}</div><p class="rom" style="margin-top:-8px">${sub}</p>`;
+    LETTER_SETS.forEach((s, i) => {
+      if (s.group !== group) return;
+      const done = setDone(i);
+      html += `<button class="set-card ${done ? "done" : ""}" data-set-idx="${i}">
+        <div class="set-letters thai ${group !== "consonant" ? "wide" : ""}">${s.letters.map((l) => `<span class="${letterSeen(l) ? "seen" : ""}">${l.ch}</span>`).join("")}</div>
+        <div class="set-meta"><b>${s.title}</b><small>${done ? "✓ Done · review" : "Tap to learn"}</small></div>
+      </button>`;
+    });
   });
-  html += `<div class="section-title" style="margin-top:22px">All letters</div>
-    <p class="rom" style="margin-top:-6px">Tap a letter to hear it and practice writing it.</p>
+  html += `<div class="section-title" style="margin-top:22px">Alphabet chart</div>
+    <p class="rom" style="margin-top:-6px">Tap anything to hear it and practice writing it.</p>
     <div class="letter-grid">${LETTERS.map((l) => `<button class="letter-cell ${letterSeen(l) ? "seen" : ""} cls-${l.cls}" data-letter="${l.ch}"><span class="thai">${l.ch}</span><small>${esc(l.sound.length > 3 ? "–" : l.sound)}</small></button>`).join("")}</div>
     <div class="class-legend"><span class="cls-mid">Mid class</span><span class="cls-high">High class</span><span class="cls-low">Low class</span></div>
-    <p class="rom" style="text-align:center">The class of a letter changes the tone of a syllable — you'll meet that later. For now, learn the shapes and sounds!</p>`;
+    <div class="letter-grid wide" style="margin-top:14px">${[...VOWELS, ...TONES].map((l) => `<button class="letter-cell ${letterSeen(l) ? "seen" : ""} kind-${l.kind}" data-letter="${l.ch}"><span class="thai">${l.ch}</span><small>${esc(l.kind === "tone" ? l.tone : l.sound + (l.length === "short" ? "·" : ""))}</small></button>`).join("")}</div>
+    <p class="rom" style="text-align:center">Vowels marked · are short. The class of a consonant affects the tone of a syllable — you'll meet that later.</p>`;
   return html;
 }
 
@@ -447,13 +618,15 @@ function bindLettersView() {
 }
 
 function showLetter(l) {
+  const sub = l.kind === "consonant" ? ` · ${CLASS_NOTE[l.cls]}` : "";
   const m = modal(`
-    <div style="text-align:center">
+    <div style="text-align:center" class="letter-modal">
       <div class="thai letter-big">${l.ch}</div>
-      <div><b>${l.rom}</b> · sound <b>${esc(l.sound)}</b></div>
-      <div class="letter-word"><span class="thai">${l.word}</span> = ${esc(l.meaning)} · ${CLASS_NOTE[l.cls]}</div>
+      ${letterInfoHtml(l)}
+      ${sub ? `<div class="rom">${sub.slice(3)}</div>` : ""}
       <div class="speak-row" style="display:flex;gap:10px;justify-content:center;margin:12px 0">
         <button class="speak-btn speak-big" data-say="${l.say}">🔊</button>
+        ${l.kind === "vowel" ? `<button class="speak-btn slow speak-big word-say" data-say="${l.word}"><span class="thai">${l.word}</span></button>` : ""}
       </div>
     </div>
     <button class="btn" id="practice-letter">✍️ Practice writing ${l.ch}</button>

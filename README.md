@@ -28,7 +28,7 @@ The app listens through your microphone using the browser's Thai speech recognit
 - Exercises: new-word cards, multiple choice, listening, match pairs, sentence building (Thai → English and English → Thai)
 - **Speaking:** say words and sentences out loud and get a % match (3 tries, no hearts lost), plus a 🎤 Speaking drill in the Words tab
 - **Writing:** spell Thai words from letter tiles, type the meaning in English, plus a ✍️ Writing drill in the Words tab
-- **Letters tab:** all 42 Thai consonants in 7 sets (most useful first), each with its name, sound and picture word. Trace letters with your finger or Apple Pencil, write them from memory (the app scores the shape), and quiz yourself on look-alike letters. Includes a handwriting drill and a tap-to-practice alphabet chart.
+- **Letters tab:** all 42 Thai consonants in 7 sets (most useful first), each with its name, sound and picture word; 25 vowels (long, short and combo) shown around the placeholder อ with example words; and the 4 tone marks. Trace letters with your finger or Apple Pencil, write them from memory (the app scores the shape), and quiz yourself on look-alike letters. Includes a handwriting drill and a tap-to-practice alphabet chart.
 - XP, a daily goal, a day streak, and hearts (a new heart every 30 minutes, and practice earns one)
 - Practice mode, a list of the words you've learned, and per-unit tips
 - A male/female setting that switches ผม/ครับ ↔ ฉัน/ค่ะ, plus a romanization on/off toggle
