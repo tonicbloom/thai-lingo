@@ -1,0 +1,463 @@
+"use strict";
+
+/* =========================================================
+   Thai Lingo — Letters: alphabet lessons + handwriting
+   Loaded after app.js (uses its helpers: shuffle, pick, speak,
+   lessonShell, feedback, choiceExercise, modal, toast, ...).
+   ========================================================= */
+
+// The 42 Thai consonants in use today (ฃ and ฅ are obsolete).
+// [letter, picture word, romanized name, sound at start of a syllable, meaning, class]
+const LETTER_ROWS = [
+  ["ก", "ไก่", "gaw gài", "g", "chicken", "mid"],
+  ["ข", "ไข่", "khǎw khài", "kh", "egg", "high"],
+  ["ค", "ควาย", "khaw khwaai", "kh", "buffalo", "low"],
+  ["ฆ", "ระฆัง", "khaw rá-khang", "kh", "bell", "low"],
+  ["ง", "งู", "ngaw nguu", "ng", "snake", "low"],
+  ["จ", "จาน", "jaw jaan", "j", "plate", "mid"],
+  ["ฉ", "ฉิ่ง", "chǎw chìng", "ch", "small cymbals", "high"],
+  ["ช", "ช้าง", "chaw cháang", "ch", "elephant", "low"],
+  ["ซ", "โซ่", "saw sôo", "s", "chain", "low"],
+  ["ฌ", "เฌอ", "chaw chəə", "ch", "tree", "low"],
+  ["ญ", "หญิง", "yaw yǐng", "y", "woman", "low"],
+  ["ฎ", "ชฎา", "daw chá-daa", "d", "headdress", "mid"],
+  ["ฏ", "ปฏัก", "dtaw bpà-dtàk", "dt", "spear", "mid"],
+  ["ฐ", "ฐาน", "thǎw thǎan", "th", "pedestal", "high"],
+  ["ฑ", "มณโฑ", "thaw mon-thoo", "th", "Montho (a queen)", "low"],
+  ["ฒ", "ผู้เฒ่า", "thaw phûu-thâo", "th", "elder", "low"],
+  ["ณ", "เณร", "naw neen", "n", "novice monk", "low"],
+  ["ด", "เด็ก", "daw dèk", "d", "child", "mid"],
+  ["ต", "เต่า", "dtaw dtào", "dt", "turtle", "mid"],
+  ["ถ", "ถุง", "thǎw thǔng", "th", "bag", "high"],
+  ["ท", "ทหาร", "thaw thá-hǎan", "th", "soldier", "low"],
+  ["ธ", "ธง", "thaw thong", "th", "flag", "low"],
+  ["น", "หนู", "naw nǔu", "n", "mouse", "low"],
+  ["บ", "ใบไม้", "baw bai-máai", "b", "leaf", "mid"],
+  ["ป", "ปลา", "bpaw bplaa", "bp", "fish", "mid"],
+  ["ผ", "ผึ้ง", "phǎw phʉ̂ng", "ph", "bee", "high"],
+  ["ฝ", "ฝา", "fǎw fǎa", "f", "lid", "high"],
+  ["พ", "พาน", "phaw phaan", "ph", "offering tray", "low"],
+  ["ฟ", "ฟัน", "faw fan", "f", "teeth", "low"],
+  ["ภ", "สำเภา", "phaw sǎm-phao", "ph", "sailing ship", "low"],
+  ["ม", "ม้า", "maw máa", "m", "horse", "low"],
+  ["ย", "ยักษ์", "yaw yák", "y", "giant", "low"],
+  ["ร", "เรือ", "raw rʉa", "r", "boat", "low"],
+  ["ล", "ลิง", "law ling", "l", "monkey", "low"],
+  ["ว", "แหวน", "waw wǎen", "w", "ring", "low"],
+  ["ศ", "ศาลา", "sǎw sǎa-laa", "s", "pavilion", "high"],
+  ["ษ", "ฤๅษี", "sǎw rʉʉ-sǐi", "s", "hermit", "high"],
+  ["ส", "เสือ", "sǎw sʉ̌a", "s", "tiger", "high"],
+  ["ห", "หีบ", "hǎw hìip", "h", "chest (box)", "high"],
+  ["ฬ", "จุฬา", "law jù-laa", "l", "kite", "low"],
+  ["อ", "อ่าง", "aw àang", "silent / a vowel holder", "basin", "mid"],
+  ["ฮ", "นกฮูก", "haw nók-hûuk", "h", "owl", "low"],
+];
+
+const LETTERS = LETTER_ROWS.map(([ch, word, rom, sound, meaning, cls]) => ({
+  id: "L:" + ch,
+  ch, word, rom, sound, meaning, cls,
+  // fields so the shared choice/feedback code can display letters like words
+  th: ch,
+  en: `${sound === "silent / a vowel holder" ? "silent" : `“${sound}”`} sound · ${meaning}`,
+  say: `${ch}อ ${word}`, // e.g. "กอ ไก่" — how Thais say the letter's name
+}));
+const LETTER_BY = Object.fromEntries(LETTERS.map((l) => [l.ch, l]));
+
+// Learning order: most useful letters first, rare ones last.
+const LETTER_SETS = [
+  { title: "Set 1", letters: "ก ค ง ด ต น" },
+  { title: "Set 2", letters: "บ ป ม ย ร ล" },
+  { title: "Set 3", letters: "ว อ ห ส ช ท" },
+  { title: "Set 4", letters: "ข จ ผ ฝ พ ฟ" },
+  { title: "Set 5", letters: "ถ ซ ฉ ญ ภ ศ" },
+  { title: "Set 6", letters: "ษ ธ ฆ ณ ฮ ฬ" },
+  { title: "Set 7", letters: "ฎ ฏ ฐ ฑ ฒ ฌ" },
+].map((s) => ({ ...s, letters: s.letters.split(" ").map((c) => LETTER_BY[c]) }));
+
+// Letters that are easy to confuse — used as tricky wrong answers.
+const LOOKALIKES = ["ก ถ ภ ฦ", "ข ช ซ", "ค ด ศ ต", "บ ป ษ ย", "ผ ฝ พ ฟ", "ม น ฆ", "ว ร ธ", "ท ฑ ห", "อ ฮ ฮ", "ฎ ฏ ฐ ฎ", "ล ส ฬ", "ง จ", "ญ ฌ ณ"]
+  .map((g) => g.split(" "));
+
+const CLASS_NOTE = {
+  mid: "Mid class",
+  high: "High class",
+  low: "Low class",
+};
+
+/* ---------- Progress ---------- */
+const letterSeen = (l) => !!(S.lseen && S.lseen[l.id]);
+function markLetterSeen(l) { S.lseen = S.lseen || {}; S.lseen[l.id] = true; save(); }
+const setDone = (i) => !!(S.lsets && S.lsets[i]);
+
+/* =========================================================
+   Handwriting pad
+   ========================================================= */
+const GLYPH_FONT = 'Thonburi, "Noto Sans Thai Looped", "Leelawadee UI", "Noto Sans Thai", sans-serif';
+const GRID = 48;
+
+// Creates a drawing pad inside `host`. Returns helpers to read, clear, and show answers.
+function createPad(host, { guide, ch }) {
+  const size = Math.min(host.clientWidth || 320, 340);
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  host.innerHTML = `
+    <div class="pad" style="width:${size}px;height:${size}px">
+      <canvas class="pad-bg"></canvas>
+      <canvas class="pad-ink"></canvas>
+    </div>`;
+  const [bg, ink] = host.querySelectorAll("canvas");
+  [bg, ink].forEach((c) => { c.width = size * dpr; c.height = size * dpr; c.style.width = c.style.height = size + "px"; });
+  const bctx = bg.getContext("2d"), ictx = ink.getContext("2d");
+  bctx.scale(dpr, dpr); ictx.scale(dpr, dpr);
+  const lineW = Math.max(7, size * 0.04);
+  const strokes = [];
+  let cur = null;
+
+  function drawBackground(showGuide, color = "rgba(20,184,166,.28)") {
+    bctx.clearRect(0, 0, size, size);
+    // writing lines
+    bctx.strokeStyle = "#e5e7eb"; bctx.lineWidth = 1.5; bctx.setLineDash([6, 6]);
+    [0.25, 0.5, 0.75].forEach((f) => { bctx.beginPath(); bctx.moveTo(10, size * f); bctx.lineTo(size - 10, size * f); bctx.stroke(); });
+    bctx.setLineDash([]);
+    if (showGuide) drawGlyph(bctx, ch, size, color);
+  }
+  function redraw() {
+    ictx.clearRect(0, 0, size, size);
+    ictx.lineCap = ictx.lineJoin = "round";
+    ictx.strokeStyle = "#1f2937";
+    ictx.lineWidth = lineW;
+    strokes.forEach((s) => {
+      ictx.beginPath();
+      s.forEach((p, i) => (i ? ictx.lineTo(p.x, p.y) : ictx.moveTo(p.x, p.y)));
+      if (s.length === 1) ictx.lineTo(s[0].x + 0.1, s[0].y + 0.1);
+      ictx.stroke();
+    });
+  }
+  const pos = (e) => { const r = ink.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+  ink.addEventListener("pointerdown", (e) => {
+    if (pad.locked) return;
+    e.preventDefault();
+    ink.setPointerCapture(e.pointerId);
+    cur = [pos(e)];
+    strokes.push(cur);
+    redraw();
+    pad.onchange && pad.onchange();
+  });
+  ink.addEventListener("pointermove", (e) => {
+    if (!cur) return;
+    e.preventDefault();
+    const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+    evs.forEach((ev) => cur.push(pos(ev)));
+    redraw();
+  });
+  const end = () => { cur = null; };
+  ink.addEventListener("pointerup", end);
+  ink.addEventListener("pointercancel", end);
+  ink.addEventListener("touchmove", (e) => e.preventDefault(), { passive: false });
+
+  drawBackground(guide);
+  const pad = {
+    size, ink, onchange: null, locked: false,
+    isEmpty: () => strokes.length === 0,
+    clear() { strokes.length = 0; redraw(); pad.onchange && pad.onchange(); },
+    undo() { strokes.pop(); redraw(); pad.onchange && pad.onchange(); },
+    showGuide(on) { drawBackground(on); },
+    showAnswer(good) { drawBackground(true, good ? "rgba(34,197,94,.35)" : "rgba(239,68,68,.30)"); },
+    score() { return scoreHandwriting(ink, ch); },
+    strokes,
+  };
+  return pad;
+}
+
+// Draw a letter centered in a square box.
+function drawGlyph(ctx, ch, size, color) {
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
+  ctx.font = `${Math.round(size * 0.62)}px ${GLYPH_FONT}`;
+  const m = ctx.measureText(ch);
+  const asc = m.actualBoundingBoxAscent || size * 0.45, desc = m.actualBoundingBoxDescent || 0;
+  ctx.fillText(ch, size / 2, size / 2 + (asc - desc) / 2);
+  ctx.restore();
+}
+
+// Turn the inked pixels of a canvas into a GRID×GRID map, scaled to fit its own
+// bounding box (so where you draw and how big doesn't matter — only the shape).
+function inkToGrid(canvas) {
+  const w = canvas.width, h = canvas.height;
+  const data = canvas.getContext("2d").getImageData(0, 0, w, h).data;
+  let x0 = w, y0 = h, x1 = -1, y1 = -1;
+  const step = 2;
+  for (let y = 0; y < h; y += step)
+    for (let x = 0; x < w; x += step)
+      if (data[(y * w + x) * 4 + 3] > 40) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  if (x1 < 0) return null;
+  const bw = x1 - x0 + 1, bh = y1 - y0 + 1, side = Math.max(bw, bh);
+  const ox = x0 - (side - bw) / 2, oy = y0 - (side - bh) / 2;
+  const grid = new Uint8Array(GRID * GRID);
+  for (let y = y0; y <= y1; y += step)
+    for (let x = x0; x <= x1; x += step)
+      if (data[(y * w + x) * 4 + 3] > 40) {
+        const gx = Math.min(GRID - 1, Math.floor(((x - ox) / side) * GRID));
+        const gy = Math.min(GRID - 1, Math.floor(((y - oy) / side) * GRID));
+        grid[gy * GRID + gx] = 1;
+      }
+  return { grid, extent: side / Math.max(w, h) };
+}
+
+// Distance (in grid cells) from every cell to the nearest inked cell.
+function distanceMap(g) {
+  const D = new Float32Array(g.length).fill(1e9);
+  const q = [];
+  for (let i = 0; i < g.length; i++) if (g[i]) { D[i] = 0; q.push(i); }
+  for (let h = 0; h < q.length; h++) {
+    const i = q[h], x = i % GRID, y = (i / GRID) | 0;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx, ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= GRID || ny >= GRID) continue;
+      const j = ny * GRID + nx;
+      if (D[j] > D[i] + 1) { D[j] = D[i] + 1; q.push(j); }
+    }
+  }
+  return D;
+}
+
+const glyphCache = {};
+function glyphGrid(ch) {
+  if (glyphCache[ch]) return glyphCache[ch];
+  const c = document.createElement("canvas");
+  c.width = c.height = 256;
+  drawGlyph(c.getContext("2d"), ch, 256, "#000");
+  const grid = inkToGrid(c).grid;
+  return (glyphCache[ch] = { grid, dist: distanceMap(grid) });
+}
+
+// Compare a drawing with the real letter. Measures how far your ink strays from the
+// letter AND how much of the letter your ink misses; the worse of the two counts.
+// Returns a 0..1 score (1 = perfect).
+function scoreHandwriting(canvas, ch) {
+  const u = inkToGrid(canvas);
+  if (!u) return { score: 0, empty: true };
+  if (u.extent < 0.15) return { score: 0, tooSmall: true };
+  const g = glyphGrid(ch);
+  const uDist = distanceMap(u.grid);
+  let stray = 0, nu = 0, miss = 0, ng = 0;
+  for (let i = 0; i < u.grid.length; i++) {
+    if (u.grid[i]) { stray += g.dist[i]; nu++; }
+    if (g.grid[i]) { miss += uDist[i]; ng++; }
+  }
+  const worst = Math.max(stray / nu, miss / ng); // average cells off
+  return { score: Math.max(0, Math.min(1, 1 - worst / 3.2)), stray: stray / nu, miss: miss / ng };
+}
+
+/* =========================================================
+   Letter exercises
+   ========================================================= */
+const TRACE_PASS = 0.65; // calibrated: ~99% of correct letters pass, ~13% of wrong ones
+const WRITE_PASS = 0.59; // from memory is a little more forgiving
+
+function letterDistractors(letter, n) {
+  const group = LOOKALIKES.find((g) => g.includes(letter.ch)) || [];
+  const tricky = shuffle(group.filter((c) => c !== letter.ch && LETTER_BY[c])).map((c) => LETTER_BY[c]);
+  const others = shuffle(LETTERS.filter((l) => l !== letter && !tricky.includes(l) && l.sound !== letter.sound));
+  const out = [];
+  for (const l of [...tricky, ...others]) {
+    if (out.length >= n) break;
+    if (l.sound === letter.sound && l !== letter) continue; // avoid two right answers
+    if (!out.includes(l)) out.push(l);
+  }
+  return out;
+}
+
+function letterChoiceExercise(letter, type) {
+  return { type, word: letter, options: shuffle([letter, ...letterDistractors(letter, 3)]) };
+}
+
+function buildLetterLesson(setIdx) {
+  const letters = LETTER_SETS[setIdx].letters;
+  const queue = [];
+  letters.forEach((l) => {
+    queue.push({ type: "letterIntro", word: l });
+    queue.push({ type: "trace", word: l, guide: true });
+  });
+  const practice = [];
+  letters.forEach((l) => {
+    practice.push(letterChoiceExercise(l, pick(["letterSound", "soundLetter"])));
+    practice.push({ type: "trace", word: l, guide: false });
+  });
+  shuffle(letters).slice(0, 3).forEach((l) => practice.push(letterChoiceExercise(l, "soundLetter")));
+  queue.push(...shuffle(practice));
+  return queue;
+}
+
+function buildHandwritingDrill() {
+  const learned = LETTERS.filter(letterSeen);
+  if (!learned.length) return null;
+  return shuffle(learned).slice(0, 8).map((l) => ({ type: "trace", word: l, guide: false }));
+}
+
+function startLetterLesson(setIdx) {
+  L = { u: null, l: null, letterSet: setIdx, queue: buildLetterLesson(setIdx), i: 0, progress: 0, mistakes: 0, answered: 0, practice: true, drill: null, speakScores: [], started: Date.now() };
+  L.total = L.queue.length;
+  renderExercise();
+}
+function startHandwritingDrill() {
+  const queue = buildHandwritingDrill();
+  if (!queue) return toast("Learn a letter set first, then come back to practice writing them! ✍️");
+  L = { u: null, l: null, letterSet: null, queue, i: 0, total: queue.length, progress: 0, mistakes: 0, answered: 0, practice: true, drill: "hand", speakScores: [], started: Date.now() };
+  renderExercise();
+}
+function startSingleLetter(letter) {
+  L = { u: null, l: null, letterSet: null, queue: [{ type: "trace", word: letter, guide: true }, { type: "trace", word: letter, guide: true }, { type: "trace", word: letter, guide: false }], i: 0, total: 3, progress: 0, mistakes: 0, answered: 0, practice: true, drill: "hand", speakScores: [], started: Date.now() };
+  renderExercise();
+}
+
+/* ----- Intro card for a letter ----- */
+function renderLetterIntro(ex) {
+  const l = ex.word;
+  lessonShell(`
+    <div class="prompt-title">New letter!</div>
+    <div class="intro">
+      <span class="badge">NEW LETTER · ${CLASS_NOTE[l.cls].toUpperCase()}</span>
+      <div class="big thai letter-big">${l.ch}</div>
+      <span class="rom">${l.rom}</span>
+      <div class="en">Sound: <b>${esc(l.sound)}</b></div>
+      <div class="letter-word"><span class="thai">${l.word}</span> = ${esc(l.meaning)}</div>
+      <div class="speak-row">
+        <button class="speak-btn speak-big" id="say">🔊</button>
+        <button class="speak-btn slow speak-big" id="slow" style="width:80px">🐢</button>
+      </div>
+      <p class="letter-tip">Each letter has a picture word, like “A for apple”. Thais say <b>${l.rom}</b> to name it.</p>
+    </div>`, `<button class="btn" id="next">Continue</button>`);
+  $("#say").onclick = () => speak(l.say);
+  $("#slow").onclick = () => speak(l.say, true);
+  speak(l.say);
+  $("#next").onclick = () => { markLetterSeen(l); L.progress++; L.i++; renderExercise(); };
+}
+
+/* ----- Choice quizzes ----- */
+function renderLetterSound(ex) {
+  const l = ex.word;
+  choiceExercise(ex, {
+    title: "What sound does this letter make?",
+    prompt: `<div class="letter-prompt thai">${l.ch}</div>`,
+    optionHtml: (o) => `<span><b>${esc(o.sound)}</b> <span class="rom">${o.rom}</span> · ${esc(o.meaning)}</span>`,
+    onRender: () => {},
+  });
+}
+function renderSoundLetter(ex) {
+  const l = ex.word;
+  choiceExercise(ex, {
+    title: `Which letter is “${esc(l.sound)}” as in ${esc(l.meaning)}?`,
+    prompt: `<div class="speech"><div class="mascot">🐘</div><div class="bubble"><button class="speak-btn" id="say">🔊</button><div><span class="rom" style="font-size:16px">${l.rom}</span><span class="en-hint thai">${l.word}</span></div></div></div>`,
+    grid: true,
+    optionHtml: (o) => `<span class="thai letter-option">${o.ch}</span>`,
+    onRender: () => { $("#say").onclick = () => speak(l.say); speak(l.say); },
+  });
+}
+
+/* ----- Trace / write from memory ----- */
+function renderTrace(ex) {
+  const l = ex.word;
+  const guide = ex.guide;
+  lessonShell(`
+    <div class="prompt-title">${guide ? "Trace the letter" : "Write the letter from memory"}</div>
+    <div class="trace-head">
+      <button class="speak-btn" id="say">🔊</button>
+      <div>${guide ? `<span class="thai trace-ch">${l.ch}</span> ` : ""}<b>${l.rom}</b> · “${esc(l.sound)}” · ${esc(l.meaning)}</div>
+    </div>
+    <div class="pad-host" id="pad"></div>
+    <div class="pad-tools">
+      <button class="btn ghost" id="undo">↩︎ Undo</button>
+      <button class="btn ghost" id="clear">✕ Clear</button>
+      ${guide ? "" : `<button class="btn ghost" id="hint">💡 Hint</button>`}
+    </div>
+    <div class="heard" id="pad-msg">${guide ? "Start at the little circle (the “head”) if the letter has one." : "Draw it big in the box. Tap 💡 if you're stuck."}</div>`, checkFooter());
+  $("#say").onclick = () => speak(l.say);
+  speak(l.say);
+  const pad = createPad($("#pad"), { guide, ch: l.ch });
+  const msg = $("#pad-msg");
+  let attempts = 0, hinted = false;
+  pad.onchange = () => ($("#check").disabled = pad.isEmpty());
+  $("#undo").onclick = () => pad.undo();
+  $("#clear").onclick = () => pad.clear();
+  if (!guide) $("#hint").onclick = () => { hinted = true; pad.showGuide(true); msg.textContent = "Hint on — trace over it, then try it from memory next time."; };
+  $("#check").onclick = () => {
+    const r = pad.score();
+    if (r.empty) return;
+    if (r.tooSmall) { msg.className = "heard off"; msg.textContent = "Draw it bigger — fill most of the box."; return; }
+    const pass = guide || hinted ? TRACE_PASS : WRITE_PASS;
+    const pct = Math.round(r.score * 100);
+    attempts++;
+    if (r.score >= pass) {
+      pad.locked = true;
+      pad.showAnswer(true);
+      markLetterSeen(l);
+      return feedback(true, ex, `<span class="thai">${l.ch}</span> ${l.rom} — ${pct}% match`);
+    }
+    if (attempts >= 3) {
+      pad.locked = true;
+      pad.showAnswer(false);
+      return feedback(false, ex, `<span class="thai">${l.ch}</span> ${l.rom} — compare your drawing with the red letter`, false, { noPenalty: true, noRetry: true });
+    }
+    msg.className = `heard ${r.score >= pass - 0.15 ? "close" : "off"}`;
+    msg.textContent = `${r.score >= pass - 0.15 ? "👍 Close!" : "🔁 Not quite."} ${pct}% match — attempt ${attempts} of 3. Clear and try again${guide ? ", following the faint letter" : ""}.`;
+    if (!guide && attempts >= 2 && !hinted) { pad.showGuide(true); hinted = true; msg.textContent += " (Hint shown.)"; }
+  };
+}
+
+/* =========================================================
+   Letters tab
+   ========================================================= */
+function lettersView() {
+  const learned = LETTERS.filter(letterSeen).length;
+  const pct = Math.round((learned / LETTERS.length) * 100);
+  let html = `
+    <div class="goal-card">
+      <div class="mascot thai" style="font-size:44px;color:var(--brand)">ก</div>
+      <div class="goal-text">
+        <b>Thai alphabet: ${learned} / ${LETTERS.length} letters</b>
+        <div class="bar"><div style="width:${pct}%;background:var(--brand)"></div></div>
+      </div>
+    </div>
+    <div class="drills" style="grid-template-columns:1fr">
+      <button class="drill-card write" id="hdrill"><span>✍️</span><b>Handwriting drill</b><small>Write letters you've learned from memory</small></button>
+    </div>
+    <div class="section-title" style="margin-top:18px">Letter sets</div>`;
+  LETTER_SETS.forEach((s, i) => {
+    const done = setDone(i);
+    html += `<button class="set-card ${done ? "done" : ""}" data-set-idx="${i}">
+      <div class="set-letters thai">${s.letters.map((l) => `<span class="${letterSeen(l) ? "seen" : ""}">${l.ch}</span>`).join("")}</div>
+      <div class="set-meta"><b>${s.title}</b><small>${done ? "✓ Done · tap to review" : "Tap to learn"}</small></div>
+    </button>`;
+  });
+  html += `<div class="section-title" style="margin-top:22px">All letters</div>
+    <p class="rom" style="margin-top:-6px">Tap a letter to hear it and practice writing it.</p>
+    <div class="letter-grid">${LETTERS.map((l) => `<button class="letter-cell ${letterSeen(l) ? "seen" : ""} cls-${l.cls}" data-letter="${l.ch}"><span class="thai">${l.ch}</span><small>${esc(l.sound.length > 3 ? "–" : l.sound)}</small></button>`).join("")}</div>
+    <div class="class-legend"><span class="cls-mid">Mid class</span><span class="cls-high">High class</span><span class="cls-low">Low class</span></div>
+    <p class="rom" style="text-align:center">The class of a letter changes the tone of a syllable — you'll meet that later. For now, learn the shapes and sounds!</p>`;
+  return html;
+}
+
+function bindLettersView() {
+  const h = $("#hdrill");
+  if (h) h.onclick = startHandwritingDrill;
+  app.querySelectorAll("[data-set-idx]").forEach((b) => b.onclick = () => startLetterLesson(+b.dataset.setIdx));
+  app.querySelectorAll("[data-letter]").forEach((b) => b.onclick = () => showLetter(LETTER_BY[b.dataset.letter]));
+}
+
+function showLetter(l) {
+  const m = modal(`
+    <div style="text-align:center">
+      <div class="thai letter-big">${l.ch}</div>
+      <div><b>${l.rom}</b> · sound <b>${esc(l.sound)}</b></div>
+      <div class="letter-word"><span class="thai">${l.word}</span> = ${esc(l.meaning)} · ${CLASS_NOTE[l.cls]}</div>
+      <div class="speak-row" style="display:flex;gap:10px;justify-content:center;margin:12px 0">
+        <button class="speak-btn speak-big" data-say="${l.say}">🔊</button>
+      </div>
+    </div>
+    <button class="btn" id="practice-letter">✍️ Practice writing ${l.ch}</button>
+    <button class="btn ghost" data-close>Close</button>`);
+  speak(l.say);
+  $("#practice-letter", m).onclick = () => { m.remove(); startSingleLetter(l); };
+}

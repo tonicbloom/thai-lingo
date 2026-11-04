@@ -9,7 +9,7 @@ const HEART_REFILL_MS = 30 * 60 * 1000; // one heart every 30 minutes
 const DAILY_GOAL = 30;
 const LESSONS_PER_UNIT = 3;
 const STORE_KEY = "thai-lingo-v1";
-const APP_VERSION = "1.4"; // shown in Profile; bump with CACHE in sw.js
+const APP_VERSION = "1.5"; // shown in Profile; bump with CACHE in sw.js
 
 /* ---------- Content index ---------- */
 const WORDS = [];
@@ -34,6 +34,8 @@ const DEFAULT_STATE = {
   heartTime: Date.now(),
   done: {},   // "unitIdx-lessonIdx": true
   seen: {},   // word id: true
+  lseen: {},  // letter id: true
+  lsets: {},  // letter set index: true
   gender: "m",
   showRom: true,
   sound: true,
@@ -450,7 +452,7 @@ function topbar() {
 
 function nav() {
   const b = (id, ico, label) => `<button class="${tab === id ? "active" : ""}" data-tab="${id}"><span>${ico}</span>${label}</button>`;
-  return `<nav class="nav">${b("learn", "🏠", "Learn")}${b("practice", "💪", "Practice")}${b("words", "📖", "Words")}${b("profile", "🐘", "Profile")}</nav>`;
+  return `<nav class="nav">${b("learn", "🏠", "Learn")}${b("letters", '<b class="thai nav-ko">ก</b>', "Letters")}${b("practice", "💪", "Practice")}${b("words", "📖", "Words")}${b("profile", "🐘", "Profile")}</nav>`;
 }
 
 function renderHome() {
@@ -458,6 +460,7 @@ function renderHome() {
   let body = "";
   if (tab === "learn") body = learnView();
   else if (tab === "words") body = wordsView();
+  else if (tab === "letters") body = lettersView();
   else if (tab === "profile") body = profileView();
   app.innerHTML = topbar() + `<div class="main">${body}</div>` + nav();
 
@@ -465,6 +468,7 @@ function renderHome() {
     if (b.dataset.tab === "practice") return startPractice();
     tab = b.dataset.tab; renderHome(); window.scrollTo(0, 0);
   });
+  if (tab === "letters") bindLettersView();
   app.querySelectorAll("[data-lesson]").forEach((b) => b.onclick = () => {
     const [u, l] = b.dataset.lesson.split("-").map(Number);
     if (!isUnlocked(u, l)) return toast("🔒 Finish the previous lesson first!");
@@ -676,6 +680,7 @@ function renderExercise() {
   const R = {
     intro: renderIntro, meaning: renderMeaning, pickThai: renderPickThai, listen: renderListen, match: renderMatch,
     buildTh: renderBuild, buildEn: renderBuild, speak: renderSpeak, spell: renderSpell, typeEn: renderTypeEn,
+    letterIntro: renderLetterIntro, letterSound: renderLetterSound, soundLetter: renderSoundLetter, trace: renderTrace,
   }[ex.type];
   R(ex);
   window.scrollTo(0, 0);
@@ -1120,7 +1125,11 @@ function finishLesson() {
   S.todayXp += xp;
   S.lessonsCompleted++;
   let extra = "";
-  if (L.practice) {
+  if (L.letterSet != null) {
+    const firstTime = !S.lsets[L.letterSet];
+    S.lsets[L.letterSet] = true;
+    extra = firstTime ? `🎉 ${LETTER_SETS[L.letterSet].letters.map((l) => l.ch).join(" ")} learned!` : "";
+  } else if (L.practice) {
     if (S.hearts < MAX_HEARTS) { S.hearts++; extra = "+1 ❤️ for practicing!"; }
   } else {
     const firstTime = !isDone(L.u, L.l);
@@ -1135,7 +1144,7 @@ function finishLesson() {
   app.innerHTML = `
     <div class="result">
       <div class="mascot">🐘</div>
-      <h1>${L.drill === "write" ? "Writing drill complete!" : L.drill ? "Speaking drill complete!" : L.practice ? "Practice complete!" : pick(msgs)}</h1>
+      <h1>${L.letterSet != null ? "Letters complete!" : L.drill === "hand" ? "Handwriting drill complete!" : L.drill === "write" ? "Writing drill complete!" : L.drill ? "Speaking drill complete!" : L.practice ? "Practice complete!" : pick(msgs)}</h1>
       ${extra ? `<b>${extra}</b>` : ""}
       <div class="result-stats">
         <div class="result-stat"><div class="label">Total XP</div><div class="value">⭐ ${xp}</div></div>
@@ -1145,7 +1154,8 @@ function finishLesson() {
       </div>
       <button class="btn" id="cont">Continue</button>
     </div>`;
-  $("#cont").onclick = () => { L = null; renderHome.scrolled = false; tab = "learn"; renderHome(); applyUpdateIfIdle(); };
+  const backTo = L.letterSet != null || L.drill === "hand" ? "letters" : "learn";
+  $("#cont").onclick = () => { L = null; renderHome.scrolled = false; tab = backTo; renderHome(); window.scrollTo(0, 0); applyUpdateIfIdle(); };
 }
 
 /* ---------- Keyboard: Enter = check/continue, 1-4 = choose ---------- */
