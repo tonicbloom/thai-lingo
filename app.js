@@ -9,7 +9,7 @@ const HEART_REFILL_MS = 30 * 60 * 1000; // one heart every 30 minutes
 const DAILY_GOAL = 30;
 const LESSONS_PER_UNIT = 3;
 const STORE_KEY = "thai-lingo-v1";
-const APP_VERSION = "1.6"; // shown in Profile; bump with CACHE in sw.js
+const APP_VERSION = "1.7"; // shown in Profile; bump with CACHE in sw.js
 
 /* ---------- Content index ---------- */
 const WORDS = [];
@@ -199,47 +199,61 @@ const SPEECH_ERRORS = {
 };
 
 /* ---------- Sound effects ---------- */
-let audioCtx = null;
-function audio() {
-  audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-  if (audioCtx.state === "suspended") audioCtx.resume();
-  return audioCtx;
+// Sound effects are synthesized once into small WAV files and played with <audio>.
+// (iPhones mute Web Audio in Silent mode, but <audio> plays like video does.)
+const SFX = {
+  good: [[660, 0, 0.15], [880, 0.09, 0.25]],
+  bad: [[220, 0, 0.18, "saw", 0.35], [180, 0.1, 0.22, "saw", 0.35]],
+  win: fanfare(false),
+  perfect: fanfare(true),
+};
+function fanfare(perfect) {
+  const C5 = 523.25, E5 = 659.25, G5 = 783.99, C6 = 1046.5, t = 0.36;
+  const notes = [
+    [C5, 0, 0.22, "tri"], [E5, 0.11, 0.22, "tri"], [G5, 0.22, 0.22, "tri"],
+    [C5, t, 1.2, "tri", 0.6], [E5, t, 1.2, "tri", 0.6], [G5, t, 1.2, "tri", 0.6], [C6, t, 1.2, "tri", 0.6], [C5 / 2, t, 1.2, "sine", 0.8],
+  ];
+  (perfect ? [2093, 2637, 3136, 4186, 3136, 4186] : [2093, 2637, 3136])
+    .forEach((f, i) => notes.push([f, t + 0.15 + i * 0.08, 0.3, "sine", 0.3]));
+  return notes;
 }
-// One note with a soft attack and decay.
-function tone(ctx, out, freq, start, dur, type = "sine", vol = 0.15) {
-  const o = ctx.createOscillator(), g = ctx.createGain();
-  o.type = type;
-  o.frequency.value = freq;
-  g.gain.setValueAtTime(0.0001, start);
-  g.gain.exponentialRampToValueAtTime(vol, start + 0.015);
-  g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
-  o.connect(g).connect(out);
-  o.start(start);
-  o.stop(start + dur + 0.05);
+
+// Render notes [freq, start, duration, wave, volume] into a WAV blob URL.
+function synthWav(notes) {
+  const rate = 22050;
+  const len = Math.ceil(rate * (Math.max(...notes.map((n) => n[1] + n[2])) + 0.05));
+  const buf = new Float32Array(len);
+  for (const [f, start, dur, wave = "sine", vol = 1] of notes) {
+    const s0 = Math.floor(start * rate), n = Math.floor(dur * rate);
+    for (let i = 0; i < n && s0 + i < len; i++) {
+      const t = i / rate, ph = (f * t) % 1;
+      const v = wave === "saw" ? 2 * ph - 1 : wave === "tri" ? 1 - 4 * Math.abs(ph - 0.5) : Math.sin(2 * Math.PI * ph);
+      const env = Math.min(1, t / 0.015) * Math.exp((-5 * t) / dur); // quick attack, smooth decay
+      buf[s0 + i] += v * env * vol;
+    }
+  }
+  let peak = 0;
+  for (const v of buf) peak = Math.max(peak, Math.abs(v));
+  const gain = peak ? 0.8 / Math.max(peak, 1) : 0;
+  const bytes = new DataView(new ArrayBuffer(44 + len * 2));
+  const str = (o, t) => [...t].forEach((c, i) => bytes.setUint8(o + i, c.charCodeAt(0)));
+  str(0, "RIFF"); bytes.setUint32(4, 36 + len * 2, true); str(8, "WAVEfmt ");
+  bytes.setUint32(16, 16, true); bytes.setUint16(20, 1, true); bytes.setUint16(22, 1, true);
+  bytes.setUint32(24, rate, true); bytes.setUint32(28, rate * 2, true); bytes.setUint16(32, 2, true); bytes.setUint16(34, 16, true);
+  str(36, "data"); bytes.setUint32(40, len * 2, true);
+  for (let i = 0; i < len; i++) bytes.setInt16(44 + i * 2, Math.max(-1, Math.min(1, buf[i] * gain)) * 32767, true);
+  return URL.createObjectURL(new Blob([bytes], { type: "audio/wav" }));
 }
+
+const sfxUrl = {};
 function beep(type) {
   if (!S.sound) return;
   try {
-    const ctx = audio();
-    const out = ctx.createDynamicsCompressor();
-    out.connect(ctx.destination);
-    const t = ctx.currentTime + 0.03;
-    if (type === "good") {
-      tone(ctx, out, 660, t, 0.15);
-      tone(ctx, out, 880, t + 0.09, 0.25);
-    } else if (type === "bad") {
-      tone(ctx, out, 220, t, 0.18, "sawtooth", 0.05);
-      tone(ctx, out, 180, t + 0.1, 0.22, "sawtooth", 0.05);
-    } else {
-      // Reward fanfare: rising arpeggio, a big major chord, then sparkles
-      const C5 = 523.25, E5 = 659.25, G5 = 783.99, C6 = 1046.5;
-      [C5, E5, G5].forEach((f, i) => tone(ctx, out, f, t + i * 0.11, 0.22, "triangle", 0.22));
-      const chord = t + 0.36;
-      [C5, E5, G5, C6].forEach((f) => tone(ctx, out, f, chord, 1.2, "triangle", 0.13));
-      tone(ctx, out, C5 / 2, chord, 1.2, "sine", 0.18);
-      const sparkle = type === "perfect" ? [2093, 2637, 3136, 4186, 3136, 4186] : [2093, 2637, 3136];
-      sparkle.forEach((f, i) => tone(ctx, out, f, chord + 0.15 + i * 0.08, 0.3, "sine", 0.06));
-    }
+    sfxUrl[type] = sfxUrl[type] || synthWav(SFX[type]);
+    const a = new Audio(sfxUrl[type]);
+    a.volume = type === "bad" ? 0.6 : 0.9;
+    const p = a.play();
+    if (p && p.catch) p.catch(() => {});
   } catch { /* ignore */ }
 }
 
@@ -580,7 +594,7 @@ function profileView() {
     <div class="setting"><div><b>I speak as…</b><small>Sets ผม/ครับ (male) or ฉัน/ค่ะ (female) in sentences</small></div>${seg("gender", [["m", "Male"], ["f", "Female"]])}</div>
     <div class="setting"><div><b>Romanization</b><small>Show pronunciation under Thai script</small></div>${seg("showRom", [["true", "On"], ["false", "Off"]])}</div>
     <div class="setting"><div><b>Speaking exercises</b><small>${!speakSupported() ? "Not supported in this browser — use Chrome or Safari" : S.speakOffUntil > Date.now() ? `Paused for ${Math.ceil((S.speakOffUntil - Date.now()) / 60000)} more min (“Can't speak now”)` : "Say words out loud and get your pronunciation checked"}</small></div>${seg("speakOn", [["true", "On"], ["false", "Off"]])}</div>
-    <div class="setting"><div><b>Sound effects</b><small>Correct/wrong sounds and the lesson-complete fanfare. On iPhone, Silent mode mutes these.</small></div>${seg("sound", [["true", "On"], ["false", "Off"]])}</div>
+    <div class="setting"><div><b>Sound effects</b><small>Correct/wrong sounds and the lesson-complete fanfare. They play even in Silent mode — turn them off here if you'd rather not.</small></div>${seg("sound", [["true", "On"], ["false", "Off"]])}</div>
     <div class="setting"><div><b>Thai voice</b><small>${hasAudio() ? `Using: ${esc(thaiVoice.name)}` : "Not found — listening exercises off"}</small></div><button class="speak-btn" data-say="สวัสดีครับ">🔊</button></div>
     <div class="setting"><div><b>App version ${APP_VERSION}</b><small>Updates install automatically. Tap if something looks out of date — your progress is kept.</small></div><button id="update" class="btn" style="width:auto;padding:8px 12px;font-size:13px">Check for updates</button></div>
     <div class="setting"><div><b>Reset progress</b><small>Start the course over</small></div><button id="reset" class="btn bad" style="width:auto;padding:8px 14px;font-size:13px">Reset</button></div>

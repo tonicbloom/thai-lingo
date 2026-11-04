@@ -180,6 +180,7 @@ function createPad(host, { guide, ch }) {
     <div class="pad" style="width:${size}px;height:${size}px">
       <canvas class="pad-bg"></canvas>
       <canvas class="pad-ink"></canvas>
+      <div class="start-dot hidden"><span>Start</span></div>
     </div>`;
   const [bg, ink] = host.querySelectorAll("canvas");
   [bg, ink].forEach((c) => { c.width = size * dpr; c.height = size * dpr; c.style.width = c.style.height = size + "px"; });
@@ -189,6 +190,16 @@ function createPad(host, { guide, ch }) {
   const strokes = [];
   let cur = null;
 
+  // Pulsing dot on the letter's head = where to start writing
+  const dot = host.querySelector(".start-dot");
+  const found = findHead(ch, size);
+  const head = found && !found.unsure ? found : null;
+  function showDot(on) {
+    if (!head || !on) return dot.classList.add("hidden");
+    const d = Math.max(26, head.r * 2 + 16);
+    Object.assign(dot.style, { left: head.x - d / 2 + "px", top: head.y - d / 2 + "px", width: d + "px", height: d + "px" });
+    dot.classList.remove("hidden", "dim");
+  }
   function drawBackground(showGuide, color = "rgba(20,184,166,.28)") {
     bctx.clearRect(0, 0, size, size);
     // writing lines
@@ -216,6 +227,7 @@ function createPad(host, { guide, ch }) {
     ink.setPointerCapture(e.pointerId);
     cur = [pos(e)];
     strokes.push(cur);
+    dot.classList.add("dim");
     redraw();
     pad.onchange && pad.onchange();
   });
@@ -232,13 +244,15 @@ function createPad(host, { guide, ch }) {
   ink.addEventListener("touchmove", (e) => e.preventDefault(), { passive: false });
 
   drawBackground(guide);
+  showDot(guide);
   const pad = {
+    hasHead: !!head,
     size, ink, onchange: null, locked: false,
     isEmpty: () => strokes.length === 0,
-    clear() { strokes.length = 0; redraw(); pad.onchange && pad.onchange(); },
+    clear() { strokes.length = 0; redraw(); dot.classList.remove("dim"); pad.onchange && pad.onchange(); },
     undo() { strokes.pop(); redraw(); pad.onchange && pad.onchange(); },
-    showGuide(on) { drawBackground(on); },
-    showAnswer(good) { drawBackground(true, good ? "rgba(34,197,94,.35)" : "rgba(239,68,68,.30)"); },
+    showGuide(on) { drawBackground(on); showDot(on); },
+    showAnswer(good) { drawBackground(true, good ? "rgba(34,197,94,.35)" : "rgba(239,68,68,.30)"); showDot(false); },
     score() { return scoreHandwriting(ink, ch); },
     strokes,
   };
@@ -270,6 +284,23 @@ function markOnly(full, color) {
   return { canvas: c, box: x1 < 0 ? null : { x: x0, y: y0, w: x1 - x0 + 2, h: y1 - y0 + 2 } };
 }
 
+// Where and how big to draw a letter so its ink fills ~60% of the box, centered.
+function glyphLayout(ctx, ch, size) {
+  const base = size * 0.62;
+  ctx.font = `${base}px ${GLYPH_FONT}`;
+  let m = ctx.measureText(ch);
+  const inkW = (m.actualBoundingBoxLeft + m.actualBoundingBoxRight) || base * 0.6;
+  const inkH = (m.actualBoundingBoxAscent + m.actualBoundingBoxDescent) || base * 0.7;
+  const fs = base * Math.min((size * 0.6) / inkH, (size * 0.8) / inkW, 3);
+  ctx.font = `${fs}px ${GLYPH_FONT}`;
+  m = ctx.measureText(ch);
+  return {
+    fs,
+    x: size / 2 - (m.actualBoundingBoxRight - m.actualBoundingBoxLeft) / 2,
+    y: size / 2 + (m.actualBoundingBoxAscent - m.actualBoundingBoxDescent) / 2,
+  };
+}
+
 function drawGlyph(ctx, ch, size, color) {
   if (ch.startsWith("MARK:")) {
     const { canvas, box } = markOnly(ch.slice(5), color);
@@ -283,19 +314,74 @@ function drawGlyph(ctx, ch, size, color) {
   ctx.fillStyle = color;
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
-  const base = size * 0.62;
-  ctx.font = `${base}px ${GLYPH_FONT}`;
-  let m = ctx.measureText(ch);
-  const inkW = (m.actualBoundingBoxLeft + m.actualBoundingBoxRight) || base * 0.6;
-  const inkH = (m.actualBoundingBoxAscent + m.actualBoundingBoxDescent) || base * 0.7;
-  // scale so the letter's ink fills about 60% of the height or 80% of the width
-  const fs = base * Math.min((size * 0.6) / inkH, (size * 0.8) / inkW, 3);
-  ctx.font = `${fs}px ${GLYPH_FONT}`;
-  m = ctx.measureText(ch);
-  const x = size / 2 - (m.actualBoundingBoxRight - m.actualBoundingBoxLeft) / 2;
-  const y = size / 2 + (m.actualBoundingBoxAscent - m.actualBoundingBoxDescent) / 2;
+  const { x, y } = glyphLayout(ctx, ch, size);
   ctx.fillText(ch, x, y);
   ctx.restore();
+}
+
+/* ---------- Start point: the "head" ----------
+   Thai letters that have a head (the little circle) are written starting at the head.
+   We find it from the font itself: the head is the smallest enclosed hole in the shape.
+   For a vowel written before the consonant (เ แ โ ไ ใ) that vowel is written first,
+   so we look at the first character only. No head found → no start dot (no guessing). */
+// Letters with more than one loop where we're not sure which loop is the head.
+// They get no dot rather than a guess.
+const UNSURE_HEAD = new Set(["ม", "ฆ", "ฌ", "ฎ", "ฏ", "ฐ", "ฒ", "ไ", "ใ"]);
+
+const headCache = {};
+function findHead(ch, size) {
+  const key = ch + "@" + size;
+  if (key in headCache) return headCache[key];
+  const c = document.createElement("canvas");
+  c.width = c.height = size;
+  const ctx = c.getContext("2d");
+  if (ch.startsWith("MARK:")) {
+    drawGlyph(ctx, ch, size, "#000");
+  } else {
+    // draw only the first character, exactly where it sits in the full shape
+    const { x, y } = glyphLayout(ctx, ch, size);
+    ctx.fillStyle = "#000";
+    ctx.fillText(ch[0], x, y);
+  }
+  const holes = findHoles(ctx.getImageData(0, 0, size, size).data, size);
+  let head = null;
+  if (holes.length && UNSURE_HEAD.has(ch[0])) head = { unsure: true };
+  else if (holes.length === 1) head = holes[0];
+  else if (holes.length > 1) head = holes.sort((a, b) => a.x - b.x)[0]; // the head is the left-hand loop
+  return (headCache[key] = head);
+}
+
+function findHoles(data, n) {
+  const ink = new Uint8Array(n * n);
+  let x0 = n, y0 = n, x1 = -1, y1 = -1;
+  for (let i = 0; i < n * n; i++) if (data[i * 4 + 3] > 100) {
+    ink[i] = 1;
+    const x = i % n, y = (i / n) | 0;
+    if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+  }
+  if (x1 < 0) return null;
+  const glyphArea = (x1 - x0 + 1) * (y1 - y0 + 1);
+  // label background regions; anything not connected to the border is a hole
+  const label = new Int32Array(n * n).fill(-1);
+  const holes = [];
+  const stack = [];
+  for (let start = 0; start < n * n; start++) {
+    if (ink[start] || label[start] !== -1) continue;
+    const id = holes.length;
+    let area = 0, sx = 0, sy = 0, border = false;
+    stack.push(start); label[start] = id;
+    while (stack.length) {
+      const i = stack.pop(), x = i % n, y = (i / n) | 0;
+      area++; sx += x; sy += y;
+      if (x === 0 || y === 0 || x === n - 1 || y === n - 1) border = true;
+      const nb = [x > 0 ? i - 1 : -1, x < n - 1 ? i + 1 : -1, y > 0 ? i - n : -1, y < n - 1 ? i + n : -1];
+      for (const j of nb) if (j >= 0 && !ink[j] && label[j] === -1) { label[j] = id; stack.push(j); }
+    }
+    holes.push({ area, cx: sx / area, cy: sy / area, border });
+  }
+  return holes
+    .filter((h) => !h.border && h.area >= glyphArea * 0.002 && h.area <= glyphArea * 0.08)
+    .map((h) => ({ x: h.cx, y: h.cy, r: Math.sqrt(h.area / Math.PI) }));
 }
 
 // Turn the inked pixels of a canvas into a GRID×GRID map, scaled to fit its own
@@ -516,9 +602,16 @@ function renderTrace(ex) {
   const l = ex.word;
   const guide = ex.guide;
   const kind = KIND_NAME[l.kind];
-  const startTip = l.kind === "tone" ? "Draw just the tone mark, nice and big. (It sits above the letter.)"
-    : l.kind === "vowel" ? "Trace the อ too — it shows where the vowel sits."
-    : "Start at the little circle (the “head”) if the letter has one.";
+  const headInfo = findHead(traceTarget(l), 300);
+  const hasHead = !!headInfo && !headInfo.unsure;
+  const dotTip = hasHead ? "Start at the pulsing dot — that's the head (little circle). Thai letters begin at their head."
+    : headInfo && headInfo.unsure ? "We're not sure which loop this one starts from, so there's no dot — ask a Thai writer to show you."
+    : "This one has no head (little circle), so there's no start dot.";
+  const startTip = l.kind === "tone" ? `Draw just the tone mark, nice and big. ${hasHead ? "Start at the dot." : ""}`
+    : l.kind === "vowel" ? (!hasHead ? `${dotTip} Trace the อ too — it shows where the vowel sits.`
+      : l.ch[0] === "อ" ? "Write the consonant (อ) first, starting at the dot (its head), then add the vowel."
+      : "This vowel is written before the consonant, so start with it — at the dot. Then write the อ.")
+    : dotTip;
   lessonShell(`
     <div class="prompt-title">${guide ? `Trace the ${kind}` : `Write the ${kind} from memory`}</div>
     <div class="trace-head">
