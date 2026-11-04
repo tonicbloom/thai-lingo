@@ -1,6 +1,6 @@
 // Offline support: serve from network when online (so updates show up right away),
 // fall back to the cached copy when offline.
-const CACHE = "thai-lingo-v2";
+const CACHE = "thai-lingo-v3";
 const FILES = ["./", "index.html", "style.css", "app.js", "data.js", "manifest.json",
   "icons/apple-touch-icon.png", "icons/icon-192.png", "icons/icon-512.png"];
 

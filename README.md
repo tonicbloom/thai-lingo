@@ -27,7 +27,7 @@ The app listens through your microphone using the browser's Thai speech recognit
 - 6 units, 18 lessons: Greetings, People & Me, Food & Drink, Numbers & Money, Family, Sweet Talk 💕
 - Exercises: new-word cards, multiple choice, listening, match pairs, sentence building (Thai → English and English → Thai)
 - **Speaking:** say words and sentences out loud and get a % match (3 tries, no hearts lost), plus a 🎤 Speaking drill in the Words tab
-- **Writing:** spell Thai words from letter tiles, and type the meaning in English
+- **Writing:** spell Thai words from letter tiles, type the meaning in English, plus a ✍️ Writing drill in the Words tab
 - XP, a daily goal, a day streak, and hearts (a new heart every 30 minutes, and practice earns one)
 - Practice mode, a list of the words you've learned, and per-unit tips
 - A male/female setting that switches ผม/ครับ ↔ ฉัน/ค่ะ, plus a romanization on/off toggle

@@ -197,25 +197,66 @@ const SPEECH_ERRORS = {
 
 /* ---------- Sound effects ---------- */
 let audioCtx = null;
+function audio() {
+  audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === "suspended") audioCtx.resume();
+  return audioCtx;
+}
+// One note with a soft attack and decay.
+function tone(ctx, out, freq, start, dur, type = "sine", vol = 0.15) {
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.type = type;
+  o.frequency.value = freq;
+  g.gain.setValueAtTime(0.0001, start);
+  g.gain.exponentialRampToValueAtTime(vol, start + 0.015);
+  g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+  o.connect(g).connect(out);
+  o.start(start);
+  o.stop(start + dur + 0.05);
+}
 function beep(type) {
   if (!S.sound) return;
   try {
-    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-    const notes = type === "good" ? [660, 880] : type === "win" ? [523, 659, 784, 1047] : [220, 180];
-    notes.forEach((f, i) => {
-      const o = audioCtx.createOscillator();
-      const g = audioCtx.createGain();
-      o.type = type === "bad" ? "sawtooth" : "sine";
-      o.frequency.value = f;
-      const t = audioCtx.currentTime + i * 0.1;
-      g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(type === "bad" ? 0.06 : 0.15, t + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
-      o.connect(g).connect(audioCtx.destination);
-      o.start(t);
-      o.stop(t + 0.2);
-    });
+    const ctx = audio();
+    const out = ctx.createDynamicsCompressor();
+    out.connect(ctx.destination);
+    const t = ctx.currentTime + 0.03;
+    if (type === "good") {
+      tone(ctx, out, 660, t, 0.15);
+      tone(ctx, out, 880, t + 0.09, 0.25);
+    } else if (type === "bad") {
+      tone(ctx, out, 220, t, 0.18, "sawtooth", 0.05);
+      tone(ctx, out, 180, t + 0.1, 0.22, "sawtooth", 0.05);
+    } else {
+      // Reward fanfare: rising arpeggio, a big major chord, then sparkles
+      const C5 = 523.25, E5 = 659.25, G5 = 783.99, C6 = 1046.5;
+      [C5, E5, G5].forEach((f, i) => tone(ctx, out, f, t + i * 0.11, 0.22, "triangle", 0.22));
+      const chord = t + 0.36;
+      [C5, E5, G5, C6].forEach((f) => tone(ctx, out, f, chord, 1.2, "triangle", 0.13));
+      tone(ctx, out, C5 / 2, chord, 1.2, "sine", 0.18);
+      const sparkle = type === "perfect" ? [2093, 2637, 3136, 4186, 3136, 4186] : [2093, 2637, 3136];
+      sparkle.forEach((f, i) => tone(ctx, out, f, chord + 0.15 + i * 0.08, 0.3, "sine", 0.06));
+    }
   } catch { /* ignore */ }
+}
+
+// Confetti burst for finishing a lesson
+function confetti() {
+  const colors = ["#14b8a6", "#f59e0b", "#8b5cf6", "#ec4899", "#22c55e", "#0ea5e9"];
+  const box = document.createElement("div");
+  box.className = "confetti";
+  for (let i = 0; i < 60; i++) {
+    const p = document.createElement("i");
+    p.style.left = Math.random() * 100 + "%";
+    p.style.background = pick(colors);
+    p.style.animationDelay = Math.random() * 0.4 + "s";
+    p.style.animationDuration = 1.6 + Math.random() * 1.2 + "s";
+    p.style.setProperty("--drift", (Math.random() * 160 - 80) + "px");
+    p.style.setProperty("--spin", (Math.random() * 720 - 360) + "deg");
+    box.appendChild(p);
+  }
+  document.body.appendChild(box);
+  setTimeout(() => box.remove(), 3500);
 }
 
 /* ---------- Progress helpers ---------- */
@@ -292,11 +333,11 @@ function wordExercise(word, pool, forceType) {
   return { type, word, options: shuffle([word, ...ds]) };
 }
 
-function sentenceExercise(sent, unitIdx) {
+function sentenceExercise(sent, unitIdx, forceType) {
   const tokens = genderize(sent.th.split(" "));
   const enWords = sent.en.split(" ");
   const canEn = enWords.length >= 2;
-  const type = canEn && Math.random() < 0.5 ? "buildEn" : "buildTh";
+  const type = forceType || (canEn && Math.random() < 0.5 ? "buildEn" : "buildTh");
   if (type === "buildTh") {
     // distractor tiles: Thai words from this unit not in the answer
     const extra = shuffle(COURSE[unitIdx].words.map((w) => w.th).filter((t) => !tokens.includes(t))).slice(0, Math.max(2, 6 - tokens.length));
@@ -350,6 +391,19 @@ function buildLesson(u, l) {
   const matchPool = l === 0 ? focus : words;
   if (matchPool.length >= 4) queue.splice(queue.length - 1, 0, matchExercise(matchPool));
   return queue;
+}
+
+// Writing-only drill: spell words in Thai letters, type meanings, build Thai sentences
+function buildWriteDrill() {
+  const learned = WORDS.filter((w) => S.seen[w.id]);
+  if (learned.length < 3) return null;
+  const queue = [];
+  shuffle(learned.filter(canSpell)).slice(0, 4).forEach((w) => queue.push(spellExercise(w)));
+  shuffle(learned.filter(plainMeaning)).slice(0, 3).forEach((w) => queue.push({ type: "typeEn", word: w }));
+  const units = [...new Set(learned.map((w) => w.unit))];
+  shuffle(units.flatMap((u) => COURSE[u].sentences.map((s) => [s, u]))).slice(0, 3)
+    .forEach(([s, u]) => queue.push(sentenceExercise(s, u, "buildTh")));
+  return shuffle(queue);
 }
 
 // Speaking-only drill from words and sentences already learned
@@ -425,6 +479,8 @@ function renderHome() {
   });
   const drill = $("#drill");
   if (drill) drill.onclick = startSpeakDrill;
+  const wdrill = $("#wdrill");
+  if (wdrill) wdrill.onclick = startWriteDrill;
   const reset = $("#reset");
   if (reset) reset.onclick = () => {
     if (confirm("Reset ALL progress? This cannot be undone.")) { S = { ...DEFAULT_STATE, heartTime: Date.now() }; save(); tab = "learn"; renderHome(); }
@@ -483,8 +539,10 @@ function wordsView() {
   const learned = WORDS.filter((w) => S.seen[w.id]);
   if (!learned.length) return `<div class="section-title">📖 My Words</div><div class="empty">Words you learn will show up here.<br/>Start your first lesson! 🐘</div>`;
   let html = `<div class="section-title">📖 My Words <span class="rom">(${learned.length} learned)</span></div>
-    <button class="btn drill-btn" id="drill">🎤 Speaking drill</button>
-    <p class="rom" style="text-align:center;margin:6px 0 4px">Say your words out loud and get a pronunciation score</p>`;
+    <div class="drills">
+      <button class="drill-card speak" id="drill"><span>🎤</span><b>Speaking drill</b><small>Say your words, get a pronunciation score</small></button>
+      <button class="drill-card write" id="wdrill"><span>✍️</span><b>Writing drill</b><small>Spell in Thai letters and build sentences</small></button>
+    </div>`;
   COURSE.forEach((unit, u) => {
     const ws = learned.filter((w) => w.unit === u);
     if (!ws.length) return;
@@ -515,7 +573,7 @@ function profileView() {
     <div class="setting"><div><b>I speak as…</b><small>Sets ผม/ครับ (male) or ฉัน/ค่ะ (female) in sentences</small></div>${seg("gender", [["m", "Male"], ["f", "Female"]])}</div>
     <div class="setting"><div><b>Romanization</b><small>Show pronunciation under Thai script</small></div>${seg("showRom", [["true", "On"], ["false", "Off"]])}</div>
     <div class="setting"><div><b>Speaking exercises</b><small>${!speakSupported() ? "Not supported in this browser — use Chrome or Safari" : S.speakOffUntil > Date.now() ? `Paused for ${Math.ceil((S.speakOffUntil - Date.now()) / 60000)} more min (“Can't speak now”)` : "Say words out loud and get your pronunciation checked"}</small></div>${seg("speakOn", [["true", "On"], ["false", "Off"]])}</div>
-    <div class="setting"><div><b>Sound effects</b></div>${seg("sound", [["true", "On"], ["false", "Off"]])}</div>
+    <div class="setting"><div><b>Sound effects</b><small>Correct/wrong sounds and the lesson-complete fanfare. On iPhone, Silent mode mutes these.</small></div>${seg("sound", [["true", "On"], ["false", "Off"]])}</div>
     <div class="setting"><div><b>Thai voice</b><small>${hasAudio() ? `Using: ${esc(thaiVoice.name)}` : "Not found — listening exercises off"}</small></div><button class="speak-btn" data-say="สวัสดีครับ">🔊</button></div>
     <div class="setting"><div><b>Reset progress</b><small>Start the course over</small></div><button id="reset" class="btn bad" style="width:auto;padding:8px 14px;font-size:13px">Reset</button></div>
     <p class="rom" style="text-align:center;margin-top:20px">Tone marks: à low · â falling · á high · ǎ rising · no mark = mid</p>`;
@@ -567,7 +625,14 @@ function startSpeakDrill() {
   if (!speakSupported()) return toast("🎤 This browser can't do speech recognition. Open Thai Lingo in Google Chrome or Safari.");
   const queue = buildSpeakDrill();
   if (!queue) return toast("Learn a few words first, then come back to practice speaking! 🎤");
-  L = { u: null, l: null, queue, i: 0, total: queue.length, progress: 0, mistakes: 0, answered: 0, practice: true, drill: true, speakScores: [], started: Date.now() };
+  L = { u: null, l: null, queue, i: 0, total: queue.length, progress: 0, mistakes: 0, answered: 0, practice: true, drill: "speak", speakScores: [], started: Date.now() };
+  renderExercise();
+}
+
+function startWriteDrill() {
+  const queue = buildWriteDrill();
+  if (!queue) return toast("Learn a few words first, then come back to practice writing! ✍️");
+  L = { u: null, l: null, queue, i: 0, total: queue.length, progress: 0, mistakes: 0, answered: 0, practice: true, drill: "write", speakScores: [], started: Date.now() };
   renderExercise();
 }
 
@@ -1059,13 +1124,14 @@ function finishLesson() {
     if (firstTime && L.l === LESSONS_PER_UNIT - 1) extra = `🎉 Unit “${COURSE[L.u].title}” complete!`;
   }
   save();
-  beep("win");
+  beep(L.mistakes === 0 ? "perfect" : "win");
+  confetti();
   const speakAvg = L.speakScores.length ? Math.round((L.speakScores.reduce((a, b) => a + b, 0) / L.speakScores.length) * 100) : null;
   const msgs = ["Lesson complete!", "เยี่ยมมาก! Amazing!", "You're on fire!", "Keep it up!"];
   app.innerHTML = `
     <div class="result">
       <div class="mascot">🐘</div>
-      <h1>${L.drill ? "Speaking drill complete!" : L.practice ? "Practice complete!" : pick(msgs)}</h1>
+      <h1>${L.drill === "write" ? "Writing drill complete!" : L.drill ? "Speaking drill complete!" : L.practice ? "Practice complete!" : pick(msgs)}</h1>
       ${extra ? `<b>${extra}</b>` : ""}
       <div class="result-stats">
         <div class="result-stat"><div class="label">Total XP</div><div class="value">⭐ ${xp}</div></div>
