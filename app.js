@@ -9,7 +9,7 @@ const HEART_REFILL_MS = 30 * 60 * 1000; // one heart every 30 minutes
 const DAILY_GOAL = 30;
 const LESSONS_PER_UNIT = 3;
 const STORE_KEY = "thai-lingo-v1";
-const APP_VERSION = "1.8"; // shown in Profile; bump with CACHE in sw.js
+const APP_VERSION = "1.9"; // shown in Profile; bump with CACHE in sw.js
 
 /* ---------- Content index ---------- */
 const WORDS = [];
@@ -40,7 +40,8 @@ const DEFAULT_STATE = {
   showRom: true,
   sound: true,
   speakOn: true,       // speaking exercises enabled
-  tapAudio: "auto",    // "What do you hear": play the answer you tap (auto = fades out in later units)
+  tapAudio: "auto",
+  spellHelp: "auto",   // "Spell it in Thai" help: auto fades out in later units    // "What do you hear": play the answer you tap (auto = fades out in later units)
   speakOffUntil: 0,    // "Can't speak now" pauses them until this time
   lessonsCompleted: 0,
 };
@@ -630,6 +631,7 @@ function profileView() {
     <div class="setting"><div><b>Romanization</b><small>Show pronunciation under Thai script</small></div>${seg("showRom", [["true", "On"], ["false", "Off"]])}</div>
     <div class="setting"><div><b>Speaking exercises</b><small>${!speakSupported() ? "Not supported in this browser — use Chrome or Safari" : S.speakOffUntil > Date.now() ? `Paused for ${Math.ceil((S.speakOffUntil - Date.now()) / 60000)} more min (“Can't speak now”)` : "Say words out loud and get your pronunciation checked"}</small></div>${seg("speakOn", [["true", "On"], ["false", "Off"]])}</div>
     <div class="setting"><div><b>Hear answers you tap</b><small>In “What do you hear?”. Auto: on (with romanization) in Units 1–2, sound only in Units 3–4, off after that.</small></div>${seg("tapAudio", [["auto", "Auto"], ["always", "On"], ["never", "Off"]])}</div>
+    <div class="setting"><div><b>Spelling help</b><small>In “Spell it in Thai”. Auto: letter sounds + tap to hear in Units 1–2, tap to hear in Units 3–4, then just slots and 💡 Hint.</small></div>${seg("spellHelp", [["auto", "Auto"], ["max", "Max"], ["min", "Min"]])}</div>
     <div class="setting"><div><b>Sound effects</b><small>Correct/wrong sounds and the lesson-complete fanfare. They play even in Silent mode — turn them off here if you'd rather not.</small></div>${seg("sound", [["true", "On"], ["false", "Off"]])}</div>
     <div class="setting"><div><b>Thai voice</b><small>${hasAudio() ? `Using: ${esc(thaiVoice.name)}` : "Not found — listening exercises off"}</small></div><button class="speak-btn" data-say="สวัสดีครับ">🔊</button></div>
     <div class="setting"><div><b>App version ${APP_VERSION}</b><small>Updates install automatically. Tap if something looks out of date — your progress is kept.</small></div><button id="update" class="btn" style="width:auto;padding:8px 12px;font-size:13px">Check for updates</button></div>
@@ -1054,43 +1056,115 @@ function renderSpeak(ex) {
 }
 
 /* ----- Writing: spell the Thai word from letters ----- */
+// ---- Spelling help: what each letter tile sounds like ----
+const LEADING_VOWEL = { "เ": "e", "แ": "ae", "โ": "o", "ใ": "ai", "ไ": "ai" };
+const TRAILING_VOWEL = { "า": "aa", "ะ": "a", "ำ": "am", "ๅ": "", "ฤ": "rʉ" };
+const MARK_SOUND = { "ั": "a", "ิ": "i", "ี": "ii", "ึ": "ʉ", "ื": "ʉʉ", "ุ": "u", "ู": "uu", "็": "short", "์": "silent", "่": "tone", "้": "tone", "๊": "tone", "๋": "tone" };
+
+// e.g. "ดี" → "d·ii", "น้" → "n·tone", "เ" → "e"
+function clusterSound(cluster) {
+  const base = cluster[0];
+  const parts = [];
+  if (LEADING_VOWEL[base] != null) parts.push(LEADING_VOWEL[base]);
+  else if (TRAILING_VOWEL[base] != null) parts.push(TRAILING_VOWEL[base]);
+  else if (typeof LETTER_BY !== "undefined" && LETTER_BY[base]) parts.push(base === "อ" ? "aw/silent" : LETTER_BY[base].sound); // อ is the vowel "aw" mid-word, silent at the start
+  for (const m of cluster.slice(1)) if (MARK_SOUND[m]) parts.push(MARK_SOUND[m]);
+  return [...new Set(parts)].filter(Boolean).join("·");
+}
+// What to say when a tile is tapped
+function clusterSay(cluster) {
+  const base = cluster[0];
+  if (LEADING_VOWEL[base] != null) return base + "อ";
+  if (TRAILING_VOWEL[base] != null) return "อ" + base;
+  const hasVowelMark = [...cluster.slice(1)].some((m) => "ัิีึืุู".includes(m));
+  if (hasVowelMark) return cluster;
+  return typeof LETTER_BY !== "undefined" && LETTER_BY[base] ? LETTER_BY[base].say : cluster;
+}
+// How much help to give: beginners get everything, later units fade it out.
+function spellHelp(word) {
+  if (S.spellHelp === "max") return "full";
+  if (S.spellHelp === "min") return "light";
+  return word.unit <= 1 ? "full" : word.unit <= 3 ? "some" : "light";
+}
+
 function renderSpell(ex) {
   const w = ex.word;
+  const help = spellHelp(w);
+  const N = ex.letters.length;
+  const tileHtml = (t) => `<span class="thai">${t}</span>${help === "full" ? `<span class="tile-sound">${esc(clusterSound(t))}</span>` : ""}`;
   lessonShell(`
     <div class="prompt-title">Spell it in Thai</div>
     <div class="speech"><div class="mascot">🐘</div><div class="bubble">
       <button class="speak-btn" id="say">🔊</button>
+      <button class="speak-btn slow" id="slow">🐢</button>
       <div><b style="font-size:20px">${esc(w.en)}</b>${romHtml(w.rom)}</div>
     </div></div>
     <div class="spell-line" id="answer"></div>
-    <div class="bank letters" id="bank">${ex.bank.map((t, i) => `<button class="tile letter" data-i="${i}"><span class="thai">${t}</span></button>`).join("")}</div>`, checkFooter());
+    <div class="spell-help-row">
+      <span class="spell-msg" id="spell-msg">${N} letters${help !== "light" ? " · tap a letter to hear it" : ""}</span>
+      <button class="hint-btn" id="hint">💡 Hint</button>
+    </div>
+    <div class="bank letters" id="bank">${ex.bank.map((t, i) => `<button class="tile letter" data-i="${i}">${tileHtml(t)}</button>`).join("")}</div>`, checkFooter());
   $("#say").onclick = () => speak(w.th);
+  $("#slow").onclick = () => speak(w.th, true);
   speak(w.th);
   const chosen = [];
   const answerEl = $("#answer");
+  const msg = $("#spell-msg");
   const bankTiles = [...app.querySelectorAll("#bank .tile")];
+  const clearGlow = () => app.querySelectorAll(".hint-glow, .hint-wrong").forEach((t) => t.classList.remove("hint-glow", "hint-wrong"));
   const redraw = () => {
-    answerEl.innerHTML = chosen.length
-      ? chosen.map((i, k) => `<button class="tile letter" data-k="${k}"><span class="thai">${ex.bank[i]}</span></button>`).join("")
-      : `<span class="spell-hint">Tap the letters in order</span>`;
+    // one slot per letter needed; filled slots are tappable to remove
+    let html = "";
+    for (let k = 0; k < N; k++) {
+      html += k < chosen.length
+        ? `<button class="tile letter" data-k="${k}">${tileHtml(ex.bank[chosen[k]])}</button>`
+        : `<span class="slot"></span>`;
+    }
+    answerEl.innerHTML = html;
     answerEl.querySelectorAll(".tile").forEach((t) => t.onclick = () => {
       const k = +t.dataset.k;
       bankTiles[chosen[k]].classList.remove("used");
       chosen.splice(k, 1);
+      clearGlow();
       redraw();
     });
     $("#check").disabled = chosen.length === 0;
   };
   redraw();
   bankTiles.forEach((t) => t.onclick = () => {
+    if (chosen.length >= N) { msg.textContent = "All slots are full — tap a letter above to remove it."; return; }
+    const i = +t.dataset.i;
+    if (help !== "light") speak(clusterSay(ex.bank[i]));
     t.classList.add("used");
-    chosen.push(+t.dataset.i);
+    chosen.push(i);
+    clearGlow();
     redraw();
   });
+  $("#hint").onclick = () => {
+    clearGlow();
+    L.hints = (L.hints || 0) + 1;
+    // first letter placed in the wrong spot?
+    const wrongAt = chosen.findIndex((bi, k) => ex.bank[bi] !== ex.letters[k]);
+    if (wrongAt !== -1) {
+      answerEl.querySelectorAll(".tile")[wrongAt].classList.add("hint-wrong");
+      msg.textContent = `Letter ${wrongAt + 1} isn't right — tap it to take it out.`;
+      return;
+    }
+    if (chosen.length >= N) { msg.textContent = "Looks right — press Check!"; return; }
+    const need = ex.letters[chosen.length];
+    const tile = bankTiles.find((t) => !t.classList.contains("used") && ex.bank[+t.dataset.i] === need);
+    if (tile) {
+      tile.classList.add("hint-glow");
+      const snd = clusterSound(need);
+      msg.textContent = `Next is the glowing one${snd ? ` (${snd})` : ""}.`;
+      speak(clusterSay(need));
+    }
+  };
   $("#check").onclick = () => {
     const given = chosen.map((i) => ex.bank[i]).join("");
     const right = given === w.th;
-    app.querySelectorAll(".tile").forEach((t) => (t.disabled = true));
+    app.querySelectorAll(".tile, #hint").forEach((t) => (t.disabled = true));
     speak(w.th);
     feedback(right, ex, `${right ? "" : `You wrote: <span class="thai">${given}</span><br/>`}<span class="thai">${w.th}</span> ${romHtml(w.rom)} = ${esc(w.en)}`);
   };

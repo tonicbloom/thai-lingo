@@ -430,3 +430,21 @@ button, .tile, .choice, .node { touch-action: manipulation; -webkit-user-select:
 /* ---------- Listening help ---------- */
 .tap-hint { text-align: center; color: var(--muted); font-size: 14px; margin: -16px 0 16px; }
 .choice .tap-rom { display: block; font-size: 13px; }
+
+/* ---------- Spelling help ---------- */
+.spell-line { gap: 6px; }
+.spell-line .slot {
+  width: 52px; height: 62px; border: 2px dashed #cbd5e1; border-radius: 12px; background: var(--bg);
+}
+.tile .tile-sound { display: block; font-size: 11px; color: var(--muted); font-weight: 700; margin-top: 1px; }
+.spell-help-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: -12px 0 16px; }
+.spell-msg { color: var(--muted); font-size: 14px; }
+.hint-btn {
+  flex-shrink: 0; border: 2px solid #fcd34d; background: #fef3c7; color: #92400e; font-weight: 800;
+  border-radius: 12px; padding: 7px 12px; font-size: 14px; box-shadow: 0 3px 0 #fcd34d;
+}
+.hint-btn:active { transform: translateY(2px); box-shadow: none; }
+.tile.hint-glow { border-color: #f59e0b; box-shadow: 0 3px 0 #f59e0b; animation: hint-pulse .9s ease-in-out infinite; }
+.tile.hint-wrong { border-color: var(--bad); background: var(--bad-bg); animation: shake .3s; }
+@keyframes hint-pulse { 50% { transform: scale(1.1); } }
+.tile.used .tile-sound { color: transparent; }
