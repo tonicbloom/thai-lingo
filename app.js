@@ -9,7 +9,7 @@ const HEART_REFILL_MS = 30 * 60 * 1000; // one heart every 30 minutes
 const DAILY_GOAL = 30;
 const LESSONS_PER_UNIT = 3;
 const STORE_KEY = "thai-lingo-v1";
-const APP_VERSION = "1.9"; // shown in Profile; bump with CACHE in sw.js
+const APP_VERSION = "1.10"; // shown in Profile; bump with CACHE in sw.js
 
 /* ---------- Content index ---------- */
 const WORDS = [];
@@ -120,37 +120,69 @@ const speakSupported = () => !!SR;
 const canSpeak = () => speakSupported() && S.speakOn && Date.now() > (S.speakOffUntil || 0);
 let rec = null;
 
-// Listen once in Thai. Calls onInterim(text) while talking and onDone(alternatives) at the end.
+// Listen once in Thai. Calls onInterim(text) while you talk, then exactly ONE of
+// onDone(alternatives) or onError(code). Every way listening can end — you stop
+// talking, you tap stop, the phone interrupts, an error, or a 10-second cap — goes
+// through settle(), so the screen can never get stuck on "Listening…".
+// Returns { stop() } for the "tap to stop" button.
 function recognize({ onInterim, onDone, onError }) {
   stopRecognizing();
-  if ("speechSynthesis" in window) speechSynthesis.cancel();
+  if ("speechSynthesis" in window && (speechSynthesis.speaking || speechSynthesis.pending)) speechSynthesis.cancel();
+  if (typeof keepAlive !== "undefined" && keepAlive) keepAlive.pause(); // don't compete with the mic on iPhone
   const r = new SR();
   rec = r;
   r.lang = "th-TH";
   r.interimResults = true;
   r.maxAlternatives = 5;
   r.continuous = false;
-  let results = null, errored = false;
-  const safety = setTimeout(() => { try { r.stop(); } catch {} }, 8000);
-  r.onresult = (e) => {
-    results = e.results;
-    onInterim && onInterim([...e.results].map((x) => x[0].transcript).join(""));
-  };
-  r.onerror = (e) => { errored = true; clearTimeout(safety); if (e.error !== "aborted") onError && onError(e.error); };
-  r.onend = () => {
-    clearTimeout(safety);
-    if (rec === r) rec = null;
-    if (errored) return;
+  let results = null, settled = false, silence = null;
+  const timers = [];
+  const later = (fn, ms) => timers.push(setTimeout(fn, ms));
+
+  const collect = () => {
     const alts = new Set();
-    if (results) {
+    if (results && results.length) {
       const n = Math.max(...[...results].map((x) => x.length));
       for (let k = 0; k < n; k++) alts.add([...results].map((x) => x[Math.min(k, x.length - 1)].transcript).join(""));
     }
-    onDone([...alts].filter(Boolean));
+    return [...alts].filter(Boolean);
   };
-  try { r.start(); } catch (err) { errored = true; onError && onError("start-failed"); }
+  const settle = (err) => {
+    if (settled) return;
+    settled = true;
+    timers.forEach(clearTimeout);
+    clearTimeout(silence);
+    if (rec === r) rec = null;
+    try { r.abort(); } catch {}
+    if (r._intentional) return; // we stopped it ourselves (left the screen) — nothing to report
+    const alts = collect();
+    if (alts.length) onDone(alts);                          // got something: score it, even if it ended oddly
+    else if (err && err !== "no-speech") onError && onError(err);
+    else onDone([]);                                        // heard nothing
+  };
+
+  r.onresult = (e) => {
+    results = e.results;
+    onInterim && onInterim([...e.results].map((x) => x[0].transcript).join(""));
+    // stop shortly after you stop talking (some phones never end on their own)
+    clearTimeout(silence);
+    const allFinal = [...e.results].every((x) => x.isFinal);
+    silence = setTimeout(() => settle(), allFinal ? 300 : 1500);
+  };
+  r.onerror = (e) => settle(e.error === "aborted" ? "interrupted" : e.error);
+  r.onend = () => settle();
+  later(() => { try { r.stop(); } catch {} }, 8000);
+  later(() => settle(), 10000); // hard cap
+  try { r.start(); } catch { settle("start-failed"); }
+
+  return {
+    stop() {
+      try { r.stop(); } catch {}
+      later(() => settle(), 1200); // if the phone never confirms, finish anyway
+    },
+  };
 }
-function stopRecognizing() { if (rec) { const r = rec; rec = null; try { r.abort(); } catch {} } }
+function stopRecognizing() { if (rec) { const r = rec; rec = null; r._intentional = true; try { r.abort(); } catch {} } }
 
 // Normalize Thai text so recognizer output can be compared with the lesson text.
 const THAI_DIGITS = "๐๑๒๓๔๕๖๗๘๙";
@@ -199,6 +231,8 @@ const SPEECH_ERRORS = {
   "network": "Speech recognition needs an internet connection. Check your connection and try again.",
   "language-not-supported": "This browser can't recognize Thai. Try Google Chrome.",
   "start-failed": "Couldn't start the microphone. Try again.",
+  "interrupted": "Listening was interrupted (the phone switched audio). Tap the mic to try again.",
+  "aborted": "Listening was interrupted. Tap the mic to try again.",
 };
 
 /* ---------- Sound effects ---------- */
@@ -991,7 +1025,7 @@ function renderSpeak(ex) {
   $("#say").onclick = () => speak(text);
   $("#slow").onclick = () => speak(text, true);
   const mic = $("#mic"), label = $("#mic-label"), heard = $("#heard"), tries = $("#tries");
-  let attempts = 0, listening = false, finished = false;
+  let attempts = 0, listening = false, finished = false, ctrl = null;
   const showTries = () => (tries.innerHTML = attempts ? `Attempt ${attempts} of ${SPEAK_TRIES}` : "");
 
   const done = (right, best) => {
@@ -1008,13 +1042,17 @@ function renderSpeak(ex) {
 
   mic.onclick = () => {
     if (finished) return;
-    if (listening) { try { rec && rec.stop(); } catch {} return; }
+    if (listening) {
+      label.textContent = "Checking…";
+      if (ctrl) ctrl.stop();
+      return;
+    }
     listening = true;
     mic.classList.add("listening");
     label.textContent = "Listening… (tap to stop)";
     heard.className = "heard";
     heard.textContent = "🎙️ Speak now…";
-    recognize({
+    ctrl = recognize({
       onInterim: (t) => (heard.innerHTML = `Hearing: <span class="thai">${esc(t)}</span>`),
       onDone: (alts) => {
         listening = false;
