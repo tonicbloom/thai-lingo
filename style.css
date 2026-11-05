@@ -426,3 +426,7 @@ button, .tile, .choice, .node { touch-action: manipulation; -webkit-user-select:
 }
 .start-dot.dim { opacity: .35; animation: none; }
 @keyframes start-pulse { 50% { transform: scale(1.18); box-shadow: 0 0 0 6px rgba(34,197,94,.2); } }
+
+/* ---------- Listening help ---------- */
+.tap-hint { text-align: center; color: var(--muted); font-size: 14px; margin: -16px 0 16px; }
+.choice .tap-rom { display: block; font-size: 13px; }

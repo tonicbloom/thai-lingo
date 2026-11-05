@@ -175,7 +175,7 @@ const GRID = 48;
 // Creates a drawing pad inside `host`. Returns helpers to read, clear, and show answers.
 function createPad(host, { guide, ch }) {
   const size = Math.min(host.clientWidth || 320, 340);
-  const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
   host.innerHTML = `
     <div class="pad" style="width:${size}px;height:${size}px">
       <canvas class="pad-bg"></canvas>
@@ -235,8 +235,15 @@ function createPad(host, { guide, ch }) {
     if (!cur) return;
     e.preventDefault();
     const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
-    evs.forEach((ev) => cur.push(pos(ev)));
-    redraw();
+    // draw only the new piece of the line (redrawing everything each move gets slow)
+    ictx.lineCap = ictx.lineJoin = "round";
+    ictx.strokeStyle = "#1f2937";
+    ictx.lineWidth = lineW;
+    ictx.beginPath();
+    const last = cur[cur.length - 1];
+    ictx.moveTo(last.x, last.y);
+    evs.forEach((ev) => { const p = pos(ev); cur.push(p); ictx.lineTo(p.x, p.y); });
+    ictx.stroke();
   });
   const end = () => { cur = null; };
   ink.addEventListener("pointerup", end);
@@ -253,7 +260,23 @@ function createPad(host, { guide, ch }) {
     undo() { strokes.pop(); redraw(); pad.onchange && pad.onchange(); },
     showGuide(on) { drawBackground(on); showDot(on); },
     showAnswer(good) { drawBackground(true, good ? "rgba(34,197,94,.35)" : "rgba(239,68,68,.30)"); showDot(false); },
-    score() { return scoreHandwriting(ink, ch); },
+    score() {
+      const n = 200, k = n / size;
+      const c = document.createElement("canvas");
+      c.width = c.height = n;
+      const x = c.getContext("2d", { willReadFrequently: true });
+      x.lineCap = x.lineJoin = "round";
+      x.lineWidth = lineW * k;
+      strokes.forEach((st) => {
+        x.beginPath();
+        st.forEach((p, i) => (i ? x.lineTo(p.x * k, p.y * k) : x.moveTo(p.x * k, p.y * k)));
+        if (st.length === 1) x.lineTo(st[0].x * k + 0.1, st[0].y * k + 0.1);
+        x.stroke();
+      });
+      const r = scoreHandwriting(c, ch);
+      c.width = c.height = 0;
+      return r;
+    },
     strokes,
   };
   return pad;
@@ -262,7 +285,10 @@ function createPad(host, { guide, ch }) {
 // Draw a letter centered in a square box.
 // Just the tone mark of e.g. "อ๋": draw it on อ, then erase the อ.
 // (Drawing a mark alone makes fonts show a dotted-circle placeholder.)
+const markCache = {};
 function markOnly(full, color) {
+  const key = full + color;
+  if (markCache[key]) return markCache[key];
   const W = 600, c = document.createElement("canvas");
   c.width = c.height = W;
   const x = c.getContext("2d");
@@ -281,7 +307,7 @@ function markOnly(full, color) {
   let x0 = W, y0 = W, x1 = -1, y1 = -1;
   for (let yy = 0; yy < W; yy += 2) for (let xx = 0; xx < W; xx += 2)
     if (d[(yy * W + xx) * 4 + 3] > 40) { if (xx < x0) x0 = xx; if (xx > x1) x1 = xx; if (yy < y0) y0 = yy; if (yy > y1) y1 = yy; }
-  return { canvas: c, box: x1 < 0 ? null : { x: x0, y: y0, w: x1 - x0 + 2, h: y1 - y0 + 2 } };
+  return (markCache[key] = { canvas: c, box: x1 < 0 ? null : { x: x0, y: y0, w: x1 - x0 + 2, h: y1 - y0 + 2 } });
 }
 
 // Where and how big to draw a letter so its ink fills ~60% of the box, centered.
@@ -334,7 +360,7 @@ function findHead(ch, size) {
   if (key in headCache) return headCache[key];
   const c = document.createElement("canvas");
   c.width = c.height = size;
-  const ctx = c.getContext("2d");
+  const ctx = c.getContext("2d", { willReadFrequently: true });
   if (ch.startsWith("MARK:")) {
     drawGlyph(ctx, ch, size, "#000");
   } else {
@@ -344,6 +370,7 @@ function findHead(ch, size) {
     ctx.fillText(ch[0], x, y);
   }
   const holes = findHoles(ctx.getImageData(0, 0, size, size).data, size);
+  c.width = c.height = 0; // free the memory right away
   let head = null;
   if (holes.length && UNSURE_HEAD.has(ch[0])) head = { unsure: true };
   else if (holes.length === 1) head = holes[0];
@@ -430,8 +457,9 @@ function glyphGrid(ch) {
   if (glyphCache[ch]) return glyphCache[ch];
   const c = document.createElement("canvas");
   c.width = c.height = 256;
-  drawGlyph(c.getContext("2d"), ch, 256, "#000");
+  drawGlyph(c.getContext("2d", { willReadFrequently: true }), ch, 256, "#000");
   const grid = inkToGrid(c).grid;
+  c.width = c.height = 0; // free the memory right away
   return (glyphCache[ch] = { grid, dist: distanceMap(grid) });
 }
 

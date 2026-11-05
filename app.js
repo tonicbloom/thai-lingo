@@ -9,7 +9,7 @@ const HEART_REFILL_MS = 30 * 60 * 1000; // one heart every 30 minutes
 const DAILY_GOAL = 30;
 const LESSONS_PER_UNIT = 3;
 const STORE_KEY = "thai-lingo-v1";
-const APP_VERSION = "1.7"; // shown in Profile; bump with CACHE in sw.js
+const APP_VERSION = "1.8"; // shown in Profile; bump with CACHE in sw.js
 
 /* ---------- Content index ---------- */
 const WORDS = [];
@@ -40,6 +40,7 @@ const DEFAULT_STATE = {
   showRom: true,
   sound: true,
   speakOn: true,       // speaking exercises enabled
+  tapAudio: "auto",    // "What do you hear": play the answer you tap (auto = fades out in later units)
   speakOffUntil: 0,    // "Can't speak now" pauses them until this time
   lessonsCompleted: 0,
 };
@@ -103,8 +104,9 @@ const hasAudio = () => !!thaiVoice;
 
 function speak(text, slow = false) {
   if (!("speechSynthesis" in window)) return;
-  speechSynthesis.cancel();
+  if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
+  speak.current = u; // keep a reference so iOS doesn't drop it mid-sentence
   u.lang = "th-TH";
   if (thaiVoice) u.voice = thaiVoice;
   u.rate = slow ? 0.5 : 0.85;
@@ -199,8 +201,9 @@ const SPEECH_ERRORS = {
 };
 
 /* ---------- Sound effects ---------- */
-// Sound effects are synthesized once into small WAV files and played with <audio>.
-// (iPhones mute Web Audio in Silent mode, but <audio> plays like video does.)
+// Sound effects are synthesized once into audio buffers and played through Web Audio,
+// which starts instantly. On iPhone, a silent looping <audio> element keeps the page in
+// "playback" mode so the sounds aren't muted by Silent mode (Web Audio alone would be).
 const SFX = {
   good: [[660, 0, 0.15], [880, 0.09, 0.25]],
   bad: [[220, 0, 0.18, "saw", 0.35], [180, 0.1, 0.22, "saw", 0.35]],
@@ -218,15 +221,15 @@ function fanfare(perfect) {
   return notes;
 }
 
-// Render notes [freq, start, duration, wave, volume] into a WAV blob URL.
-function synthWav(notes) {
-  const rate = 22050;
-  const len = Math.ceil(rate * (Math.max(...notes.map((n) => n[1] + n[2])) + 0.05));
+const SFX_RATE = 22050;
+// Render notes [freq, start, duration, wave, volume] into raw samples.
+function synthPCM(notes) {
+  const len = Math.ceil(SFX_RATE * (Math.max(...notes.map((n) => n[1] + n[2])) + 0.05));
   const buf = new Float32Array(len);
   for (const [f, start, dur, wave = "sine", vol = 1] of notes) {
-    const s0 = Math.floor(start * rate), n = Math.floor(dur * rate);
+    const s0 = Math.floor(start * SFX_RATE), n = Math.floor(dur * SFX_RATE);
     for (let i = 0; i < n && s0 + i < len; i++) {
-      const t = i / rate, ph = (f * t) % 1;
+      const t = i / SFX_RATE, ph = (f * t) % 1;
       const v = wave === "saw" ? 2 * ph - 1 : wave === "tri" ? 1 - 4 * Math.abs(ph - 0.5) : Math.sin(2 * Math.PI * ph);
       const env = Math.min(1, t / 0.015) * Math.exp((-5 * t) / dur); // quick attack, smooth decay
       buf[s0 + i] += v * env * vol;
@@ -235,25 +238,56 @@ function synthWav(notes) {
   let peak = 0;
   for (const v of buf) peak = Math.max(peak, Math.abs(v));
   const gain = peak ? 0.8 / Math.max(peak, 1) : 0;
-  const bytes = new DataView(new ArrayBuffer(44 + len * 2));
+  for (let i = 0; i < len; i++) buf[i] *= gain;
+  return buf;
+}
+// A short silent WAV (for keeping iPhone audio in playback mode).
+function silentWavUrl() {
+  const len = SFX_RATE / 2, bytes = new DataView(new ArrayBuffer(44 + len * 2));
   const str = (o, t) => [...t].forEach((c, i) => bytes.setUint8(o + i, c.charCodeAt(0)));
   str(0, "RIFF"); bytes.setUint32(4, 36 + len * 2, true); str(8, "WAVEfmt ");
   bytes.setUint32(16, 16, true); bytes.setUint16(20, 1, true); bytes.setUint16(22, 1, true);
-  bytes.setUint32(24, rate, true); bytes.setUint32(28, rate * 2, true); bytes.setUint16(32, 2, true); bytes.setUint16(34, 16, true);
+  bytes.setUint32(24, SFX_RATE, true); bytes.setUint32(28, SFX_RATE * 2, true); bytes.setUint16(32, 2, true); bytes.setUint16(34, 16, true);
   str(36, "data"); bytes.setUint32(40, len * 2, true);
-  for (let i = 0; i < len; i++) bytes.setInt16(44 + i * 2, Math.max(-1, Math.min(1, buf[i] * gain)) * 32767, true);
   return URL.createObjectURL(new Blob([bytes], { type: "audio/wav" }));
 }
 
-const sfxUrl = {};
+let actx = null, keepAlive = null;
+const sfxBuf = {};
+// Called on the first tap (browsers only allow audio after a user gesture).
+function initAudio() {
+  try {
+    if (!actx) {
+      actx = new (window.AudioContext || window.webkitAudioContext)();
+      for (const k in SFX) {
+        const data = synthPCM(SFX[k]);
+        const b = actx.createBuffer(1, data.length, SFX_RATE);
+        b.getChannelData(0).set(data);
+        sfxBuf[k] = b;
+      }
+    }
+    if (actx.state !== "running") actx.resume();
+    if (/iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)) {
+      if (!keepAlive) { keepAlive = new Audio(silentWavUrl()); keepAlive.loop = true; }
+      if (keepAlive.paused) keepAlive.play().catch(() => {});
+    }
+  } catch { /* ignore */ }
+}
+["pointerdown", "keydown"].forEach((ev) => document.addEventListener(ev, initAudio, { capture: true, passive: true }));
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") { keepAlive && keepAlive.pause(); actx && actx.suspend(); }
+});
+
 function beep(type) {
   if (!S.sound) return;
   try {
-    sfxUrl[type] = sfxUrl[type] || synthWav(SFX[type]);
-    const a = new Audio(sfxUrl[type]);
-    a.volume = type === "bad" ? 0.6 : 0.9;
-    const p = a.play();
-    if (p && p.catch) p.catch(() => {});
+    initAudio();
+    if (!sfxBuf[type]) return;
+    const src = actx.createBufferSource(), g = actx.createGain();
+    src.buffer = sfxBuf[type];
+    g.gain.value = type === "bad" ? 0.6 : 0.9;
+    src.connect(g).connect(actx.destination);
+    src.start();
   } catch { /* ignore */ }
 }
 
@@ -470,6 +504,7 @@ function nav() {
 }
 
 function renderHome() {
+  releaseCanvases();
   refreshDaily();
   let body = "";
   if (tab === "learn") body = learnView();
@@ -594,6 +629,7 @@ function profileView() {
     <div class="setting"><div><b>I speak as…</b><small>Sets ผม/ครับ (male) or ฉัน/ค่ะ (female) in sentences</small></div>${seg("gender", [["m", "Male"], ["f", "Female"]])}</div>
     <div class="setting"><div><b>Romanization</b><small>Show pronunciation under Thai script</small></div>${seg("showRom", [["true", "On"], ["false", "Off"]])}</div>
     <div class="setting"><div><b>Speaking exercises</b><small>${!speakSupported() ? "Not supported in this browser — use Chrome or Safari" : S.speakOffUntil > Date.now() ? `Paused for ${Math.ceil((S.speakOffUntil - Date.now()) / 60000)} more min (“Can't speak now”)` : "Say words out loud and get your pronunciation checked"}</small></div>${seg("speakOn", [["true", "On"], ["false", "Off"]])}</div>
+    <div class="setting"><div><b>Hear answers you tap</b><small>In “What do you hear?”. Auto: on (with romanization) in Units 1–2, sound only in Units 3–4, off after that.</small></div>${seg("tapAudio", [["auto", "Auto"], ["always", "On"], ["never", "Off"]])}</div>
     <div class="setting"><div><b>Sound effects</b><small>Correct/wrong sounds and the lesson-complete fanfare. They play even in Silent mode — turn them off here if you'd rather not.</small></div>${seg("sound", [["true", "On"], ["false", "Off"]])}</div>
     <div class="setting"><div><b>Thai voice</b><small>${hasAudio() ? `Using: ${esc(thaiVoice.name)}` : "Not found — listening exercises off"}</small></div><button class="speak-btn" data-say="สวัสดีครับ">🔊</button></div>
     <div class="setting"><div><b>App version ${APP_VERSION}</b><small>Updates install automatically. Tap if something looks out of date — your progress is kept.</small></div><button id="update" class="btn" style="width:auto;padding:8px 12px;font-size:13px">Check for updates</button></div>
@@ -669,7 +705,13 @@ function quitLesson() {
   $("#quit", m).onclick = () => { m.remove(); stopRecognizing(); speechSynthesis?.cancel(); L = null; renderHome(); applyUpdateIfIdle(); };
 }
 
+// iOS Safari frees canvas memory slowly; shrinking old canvases releases it right away.
+function releaseCanvases() {
+  app.querySelectorAll("canvas").forEach((c) => { c.width = 0; c.height = 0; });
+}
+
 function lessonShell(inner, footer) {
+  releaseCanvases();
   const pct = Math.round((L.progress / L.total) * 100);
   app.innerHTML = `
     <div class="lesson">
@@ -761,6 +803,11 @@ function choiceExercise(ex, { title, prompt, optionHtml, grid, onRender }) {
     b.classList.add("selected");
     sel = +b.dataset.i;
     if (ex.type === "pickThai") speak(ex.options[sel].th);
+    if (ex.type === "listen") {
+      const help = listenHelp(ex.word);
+      if (help !== "none") speak(ex.options[sel].th);
+      if (help === "full") b.querySelector(".tap-rom")?.classList.remove("hidden");
+    }
     $("#check").disabled = false;
   });
   onRender && onRender();
@@ -800,13 +847,23 @@ function renderPickThai(ex) {
   });
 }
 
+// How much help "What do you hear?" gives when you tap an answer.
+// Beginners hear it and see the romanization; later units fade that out.
+function listenHelp(word) {
+  if (S.tapAudio === "always") return "audio";
+  if (S.tapAudio === "never") return "none";
+  return word.unit <= 1 ? "full" : word.unit <= 3 ? "audio" : "none";
+}
+
 function renderListen(ex) {
   const w = ex.word;
+  const help = listenHelp(w);
   choiceExercise(ex, {
     title: "What do you hear?",
-    prompt: `<div class="listen-row"><button class="speak-btn speak-big" id="say">🔊</button><button class="speak-btn slow" id="slow">🐢</button></div>`,
+    prompt: `<div class="listen-row"><button class="speak-btn speak-big" id="say">🔊</button><button class="speak-btn slow" id="slow">🐢</button></div>
+      ${help !== "none" ? `<p class="tap-hint">Tap an answer to hear it, then compare.</p>` : ""}`,
     grid: true,
-    optionHtml: (o) => `<span class="thai">${o.th}</span>`,
+    optionHtml: (o) => `<span class="thai">${o.th}</span>${help === "full" ? `<span class="rom tap-rom hidden">${o.rom}</span>` : ""}`,
     onRender: () => {
       $("#say").onclick = () => speak(w.th);
       $("#slow").onclick = () => speak(w.th, true);
@@ -1130,6 +1187,7 @@ function feedback(right, ex, answerHtml, noAnswer, opts = {}) {
 
 /* ----- Finish ----- */
 function finishLesson() {
+  releaseCanvases();
   const accuracy = L.answered ? Math.round(((L.answered - L.mistakes) / L.answered) * 100) : 100;
   let xp = L.practice ? 10 : 15;
   if (L.mistakes === 0) xp += 5;
@@ -1226,5 +1284,9 @@ renderHome();
 setupUpdates();
 // Voices load asynchronously in some browsers — re-render once they arrive
 if ("speechSynthesis" in window) {
-  speechSynthesis.addEventListener("voiceschanged", () => { findVoice(); if (!L) renderHome(); });
+  speechSynthesis.addEventListener("voiceschanged", () => {
+    const had = hasAudio();
+    findVoice();
+    if (had !== hasAudio() && !L) renderHome();
+  });
 }
