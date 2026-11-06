@@ -448,3 +448,4 @@ button, .tile, .choice, .node { touch-action: manipulation; -webkit-user-select:
 .tile.hint-wrong { border-color: var(--bad); background: var(--bad-bg); animation: shake .3s; }
 @keyframes hint-pulse { 50% { transform: scale(1.1); } }
 .tile.used .tile-sound { color: transparent; }
+.choice .new-rom { color: var(--brand-dark); font-style: normal; font-weight: 700; }

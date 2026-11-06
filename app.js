@@ -9,7 +9,7 @@ const HEART_REFILL_MS = 30 * 60 * 1000; // one heart every 30 minutes
 const DAILY_GOAL = 30;
 const LESSONS_PER_UNIT = 3;
 const STORE_KEY = "thai-lingo-v1";
-const APP_VERSION = "1.10"; // shown in Profile; bump with CACHE in sw.js
+const APP_VERSION = "1.11"; // shown in Profile; bump with CACHE in sw.js
 
 /* ---------- Content index ---------- */
 const WORDS = [];
@@ -35,6 +35,7 @@ const DEFAULT_STATE = {
   done: {},   // "unitIdx-lessonIdx": true
   seen: {},   // word id: true
   lseen: {},  // letter id: true
+  known: {},  // word id: how many times you've answered it correctly
   lsets: {},  // letter set index: true
   gender: "m",
   showRom: true,
@@ -891,15 +892,26 @@ function listenHelp(word) {
   return word.unit <= 1 ? "full" : word.unit <= 3 ? "audio" : "none";
 }
 
+// A word stays "new" until you've got it right a few times.
+const NEW_UNTIL = 3;
+const isNewWord = (w) => ((S.known && S.known[w.id]) || 0) < NEW_UNTIL;
+
 function renderListen(ex) {
   const w = ex.word;
   const help = listenHelp(w);
+  // While the answer is still a new word, every option shows its romanization (all or none,
+  // so the answer never stands out). Once it's familiar: romanization only on tap (Units 1–2) or not at all.
+  const showAll = S.showRom && isNewWord(w);
+  const romFor = (o) => {
+    if (showAll) return `<span class="rom tap-rom new-rom">${o.rom}</span>`;
+    return S.showRom && help === "full" ? `<span class="rom tap-rom hidden">${o.rom}</span>` : "";
+  };
   choiceExercise(ex, {
     title: "What do you hear?",
     prompt: `<div class="listen-row"><button class="speak-btn speak-big" id="say">🔊</button><button class="speak-btn slow" id="slow">🐢</button></div>
       ${help !== "none" ? `<p class="tap-hint">Tap an answer to hear it, then compare.</p>` : ""}`,
     grid: true,
-    optionHtml: (o) => `<span class="thai">${o.th}</span>${help === "full" ? `<span class="rom tap-rom hidden">${o.rom}</span>` : ""}`,
+    optionHtml: (o) => `<span class="thai">${o.th}</span>${romFor(o)}`,
     onRender: () => {
       $("#say").onclick = () => speak(w.th);
       $("#slow").onclick = () => speak(w.th, true);
@@ -1254,6 +1266,7 @@ function feedback(right, ex, answerHtml, noAnswer, opts = {}) {
   if (right) {
     L.progress++;
     beep("good");
+    if (ex.word && ex.word.id) { S.known = S.known || {}; S.known[ex.word.id] = (S.known[ex.word.id] || 0) + 1; }
   } else {
     L.mistakes++;
     beep("bad");
