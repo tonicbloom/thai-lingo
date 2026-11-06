@@ -181,7 +181,7 @@ function renderSpell(ex) {
 
   lessonShell(`
     <div class="prompt-title">Spell it in Thai</div>
-    <div class="speech"><div class="mascot">🐘</div><div class="bubble">
+    <div class="speech">${speakerFor(ex)}<div class="bubble">
       <button class="speak-btn" id="say">🔊</button>
       <button class="speak-btn slow" id="slow">🐢</button>
       <div><b style="font-size:20px">${esc(w.en)}</b>${romHtml(w.rom)}</div>
@@ -190,7 +190,7 @@ function renderSpell(ex) {
     <div class="sb-syls" id="sb-syls"></div>
     <div class="sb-step" id="sb-step"></div>
     <div class="choices grid2" id="sb-choices"></div>
-    <div class="sb-notes" id="sb-notes"></div>`, `<button class="btn ghost" id="hint">💡 Hint</button>`);
+    <div class="sb-notes" id="sb-notes"></div>`, L.legendary ? `<p class="card-swipe">👑 Legendary: no hints</p>` : `<button class="btn ghost" id="hint">💡 Hint</button>`);
   $("#say").onclick = () => speak(w.th);
   $("#slow").onclick = () => speak(w.th, true);
   speak(w.th);
@@ -244,11 +244,12 @@ function renderSpell(ex) {
         b.classList.add("wrong");
         b.disabled = true;
         beep("bad");
-        if (stepSlips >= 2) btns.find((x) => choices[+x.dataset.i].value === s[step])?.classList.add("hint-glow");
+        if (stepSlips >= 2 && !L.legendary) btns.find((x) => choices[+x.dataset.i].value === s[step])?.classList.add("hint-glow");
       }
     });
   }
-  $("#hint").onclick = () => {
+  const hintBtn = $("#hint");
+  if (hintBtn) hintBtn.onclick = () => {
     if (!current || k >= steps.length) return;
     current.btns.forEach((b) => { if (current.choices[+b.dataset.i].value === current.answer) b.classList.add("hint-glow"); });
     L.hints = (L.hints || 0) + 1;
@@ -257,7 +258,7 @@ function renderSpell(ex) {
     drawWord();
     $("#sb-step").innerHTML = `<b>${slips ? "Done — now you know how it's built!" : "Perfect spelling!"}</b>`;
     $("#sb-choices").innerHTML = "";
-    $("#hint").disabled = true;
+    if (hintBtn) hintBtn.disabled = true;
     speak(w.th);
     const breakdown = syls.map((s, i) => `<span class="thai">${sylText(s)}</span> ${esc(roms[i])}`).join(" · ");
     // a slip doesn't cost a heart here, but the word comes back later for practice

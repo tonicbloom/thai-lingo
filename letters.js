@@ -618,7 +618,7 @@ function renderSoundLetter(ex) {
     : `<span class="rom" style="font-size:16px">${l.wordRom}</span><span class="en-hint">${esc(l.meaning)}</span>`;
   choiceExercise(ex, {
     title: esc(l.question),
-    prompt: `<div class="speech"><div class="mascot">🐘</div><div class="bubble"><button class="speak-btn" id="say">🔊</button><div>${hint}</div></div></div>`,
+    prompt: `<div class="speech">${speakerFor(ex)}<div class="bubble"><button class="speak-btn" id="say">🔊</button><div>${hint}</div></div></div>`,
     grid: true,
     optionHtml: (o) => `<span class="thai letter-option ${o.kind !== "consonant" ? "wide" : ""}">${o.ch}</span>`,
     onRender: () => { $("#say").onclick = () => speak(l.say); speak(l.say); },

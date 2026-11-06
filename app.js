@@ -9,7 +9,7 @@ const HEART_REFILL_MS = 30 * 60 * 1000; // one heart every 30 minutes
 const DAILY_GOAL = 30;
 const LESSONS_PER_UNIT = 3;
 const STORE_KEY = "thai-lingo-v1";
-const APP_VERSION = "1.12"; // shown in Profile; bump with CACHE in sw.js
+const APP_VERSION = "2.0"; // shown in Profile; bump with CACHE in sw.js
 
 /* ---------- Content index ---------- */
 const WORDS = [];
@@ -36,6 +36,9 @@ const DEFAULT_STATE = {
   seen: {},   // word id: true
   lseen: {},  // letter id: true
   known: {},  // word id: how many times you've answered it correctly
+  stories: {}, // unit index: true once its story is read
+  legend: {},  // unit index: true once its Legendary challenge is passed
+  cards: {},   // phrase card id: { box, due } (spaced repetition)
   lsets: {},  // letter set index: true
   gender: "m",
   showRom: true,
@@ -556,7 +559,17 @@ function renderHome() {
     if (!isUnlocked(u, l)) return toast("🔒 Finish the previous lesson first!");
     startLesson(u, l);
   });
-  app.querySelectorAll("[data-tip]").forEach((b) => b.onclick = () => showTip(+b.dataset.tip));
+  app.querySelectorAll("[data-tip]").forEach((b) => b.onclick = () => showGuidebook(+b.dataset.tip));
+  app.querySelectorAll("[data-story]").forEach((b) => b.onclick = () => {
+    const u = +b.dataset.story;
+    if (!isDone(u, LESSONS_PER_UNIT - 1)) return toast("🔒 Finish this unit's Review to unlock its story!");
+    startStory(u);
+  });
+  app.querySelectorAll("[data-legend]").forEach((b) => b.onclick = () => {
+    const u = +b.dataset.legend;
+    if (!unitComplete(u)) return toast("🔒 Finish all of this unit's lessons first!");
+    confirmLegendary(u);
+  });
   app.querySelectorAll("[data-say]").forEach((b) => b.onclick = () => speak(b.dataset.say));
   app.querySelectorAll("[data-set]").forEach((b) => b.onclick = () => {
     const [k, v] = b.dataset.set.split("=");
@@ -566,6 +579,8 @@ function renderHome() {
   });
   const drill = $("#drill");
   if (drill) drill.onclick = startSpeakDrill;
+  const cardsBtn = $("#cards");
+  if (cardsBtn) cardsBtn.onclick = () => startCards();
   const wdrill = $("#wdrill");
   if (wdrill) wdrill.onclick = startWriteDrill;
   const upd = $("#update");
@@ -581,6 +596,15 @@ function renderHome() {
   }
 }
 
+const SECTIONS = [
+  { title: "First steps", sub: "Greet people, introduce yourself, order food", units: [0, 1, 2] },
+  { title: "Daily life", sub: "Numbers, family and sweet talk", units: [3, 4, 5] },
+];
+const HOST_LINE = [
+  ["สวัสดีค่ะ!", "Hello!"], ["ยินดีที่ได้รู้จักค่ะ", "Nice to meet you"], ["หิวไหมคะ", "Hungry?"],
+  ["เท่าไหร่ครับ", "How much?"], ["คิดถึงแม่ค่ะ", "I miss Mom"], ["ฝันดีนะครับ", "Sweet dreams"],
+];
+
 function learnView() {
   const cur = currentLesson();
   const pct = Math.min(100, Math.round((S.todayXp / DAILY_GOAL) * 100));
@@ -593,30 +617,60 @@ function learnView() {
       </div>
     </div>`;
   if (!hasAudio()) html += audioWarning();
-  const offsets = [0, 50, 0];
-  COURSE.forEach((unit, u) => {
-    const locked = !isUnlocked(u, 0);
-    html += `<section class="unit ${locked ? "locked" : ""}">
-      <div class="unit-header" style="background:${unit.color}">
-        <div><small>UNIT ${u + 1}</small><h2>${unit.emoji} ${unit.title}</h2></div>
-        <button class="tip-btn" data-tip="${u}">📒 Tips</button>
-      </div>
-      <div class="path">`;
-    for (let l = 0; l < LESSONS_PER_UNIT; l++) {
-      const done = isDone(u, l);
-      const unlocked = isUnlocked(u, l);
-      const isCur = cur && cur[0] === u && cur[1] === l;
-      const icon = done ? "✓" : !unlocked ? "🔒" : l === LESSONS_PER_UNIT - 1 ? "🏆" : "★";
-      const label = l === LESSONS_PER_UNIT - 1 ? "Review" : `Lesson ${l + 1}`;
-      const shift = (u % 2 ? -1 : 1) * offsets[l];
-      html += `<div class="node-wrap" style="transform:translateX(${shift}px)">
-        <button class="node ${done ? "done" : ""} ${!unlocked ? "locked" : ""} ${isCur ? "current" : ""}" style="background:${unit.color}" data-lesson="${u}-${l}">${icon}</button>
-        <div class="node-label">${label}</div>
-      </div>`;
-    }
-    html += `</div></section>`;
+  const zig = [0, 56, 70, 30, -40];
+  SECTIONS.forEach((sec, si) => {
+    const total = sec.units.length * LESSONS_PER_UNIT;
+    const doneN = sec.units.reduce((n, u) => n + [...Array(LESSONS_PER_UNIT).keys()].filter((l) => isDone(u, l)).length, 0);
+    html += `<div class="section-card">
+      <div><small>SECTION ${si + 1}</small><h2>${sec.title}</h2><p>${sec.sub}</p></div>
+      <div class="ring" style="--p:${Math.round((doneN / total) * 100)}"><span>${doneN}/${total}</span></div>
+    </div>`;
+    sec.units.forEach((u) => {
+      const unit = COURSE[u];
+      const locked = !isUnlocked(u, 0);
+      const complete = unitComplete(u);
+      const host = CAST[UNIT_HOST[u]];
+      html += `<section class="unit ${locked ? "locked" : ""}">
+        <div class="unit-header" style="background:${unit.color}">
+          <div><small>UNIT ${u + 1}</small><h2>${unit.emoji} ${unit.title}</h2></div>
+          <button class="tip-btn" data-tip="${u}">📖 Guidebook</button>
+        </div>
+        <div class="path">
+          <div class="path-host ${u % 2 ? "right" : "left"}"><span class="host-av">${host.avatar}</span><span class="host-say"><span class="thai">${HOST_LINE[u][0]}</span><small>${host.name}</small></span></div>`;
+      const nodes = [];
+      for (let l = 0; l < LESSONS_PER_UNIT; l++) nodes.push({ kind: "lesson", l });
+      nodes.push({ kind: "story" }, { kind: "legend" });
+      nodes.forEach((n, i) => {
+        const shift = (u % 2 ? -1 : 1) * zig[i];
+        let cls = "", icon, label, data;
+        if (n.kind === "lesson") {
+          const done = isDone(u, n.l), unlocked = isUnlocked(u, n.l);
+          const isCur = cur && cur[0] === u && cur[1] === n.l;
+          cls = `${done ? "done" : ""} ${!unlocked ? "locked" : ""} ${isCur ? "current" : ""}`;
+          icon = done ? "✓" : !unlocked ? "🔒" : n.l === LESSONS_PER_UNIT - 1 ? "🏆" : "★";
+          label = n.l === LESSONS_PER_UNIT - 1 ? "Review" : `Lesson ${n.l + 1}`;
+          data = `data-lesson="${u}-${n.l}"`;
+        } else if (n.kind === "story") {
+          const open = isDone(u, LESSONS_PER_UNIT - 1);
+          cls = `story ${S.stories[u] ? "done" : ""} ${open ? "" : "locked"}`;
+          icon = open ? "📖" : "🔒";
+          label = "Story";
+          data = `data-story="${u}"`;
+        } else {
+          cls = `legend ${S.legend[u] ? "gold" : ""} ${complete ? "" : "locked"}`;
+          icon = complete ? "👑" : "🔒";
+          label = S.legend[u] ? "Legendary ✓" : "Legendary";
+          data = `data-legend="${u}"`;
+        }
+        html += `<div class="node-wrap" style="transform:translateX(${shift}px)">
+          <button class="node ${cls}" style="background:${unit.color}" ${data}>${icon}</button>
+          <div class="node-label">${label}</div>
+        </div>`;
+      });
+      html += `</div></section>`;
+    });
   });
-  if (!cur) html += `<div class="empty">🎉 You finished the whole course! Keep your streak alive with Practice, or ask for more units.</div>`;
+  if (!cur) html += `<div class="empty">🎉 You finished the whole course! Read the stories, go Legendary 👑, or keep your streak with Practice.</div>`;
   return html;
 }
 
@@ -628,6 +682,7 @@ function wordsView() {
   const learned = WORDS.filter((w) => S.seen[w.id]);
   if (!learned.length) return `<div class="section-title">📖 My Words</div><div class="empty">Words you learn will show up here.<br/>Start your first lesson! 🐘</div>`;
   let html = `<div class="section-title">📖 My Words <span class="rom">(${learned.length} learned)</span></div>
+    <button class="cards-cta" id="cards"><span class="cards-ico">🃏</span><span><b>Phrase cards</b><small>${cardsDueLabel()}</small></span><span class="cards-go">›</span></button>
     <div class="drills">
       <button class="drill-card speak" id="drill"><span>🎤</span><b>Speaking drill</b><small>Say your words, get a pronunciation score</small></button>
       <button class="drill-card write" id="wdrill"><span>✍️</span><b>Writing drill</b><small>Spell in Thai letters and build sentences</small></button>
@@ -751,8 +806,8 @@ function lessonShell(inner, footer) {
     <div class="lesson">
       <div class="lesson-top">
         <button class="close" id="close">✕</button>
-        <div class="bar"><div style="width:${pct}%"></div></div>
-        ${L.practice ? `<div class="stat xp">💪</div>` : `<div class="stat hearts">❤️ ${S.hearts}</div>`}
+        <div class="bar ${L.combo >= 3 ? "hot" : ""}"><div style="width:${pct}%"></div><span class="combo ${L.combo >= 3 ? "" : "hidden"}" id="combo">🔥 ${L.combo || 0} in a row!</span></div>
+        ${L.legendary ? `<div class="stat lives">👑 ${L.lives}</div>` : L.practice ? `<div class="stat xp">💪</div>` : `<div class="stat hearts">❤️ ${S.hearts}</div>`}
       </div>
       <div class="lesson-body">${inner}</div>
       <div class="lesson-foot" id="foot">${footer}</div>
@@ -760,7 +815,9 @@ function lessonShell(inner, footer) {
   $("#close").onclick = quitLesson;
 }
 
-const romHtml = (r) => (S.showRom && r ? `<span class="rom">${r}</span>` : "");
+// Romanization is hidden during Legendary challenges
+const romOn = () => S.showRom && !(L && L.legendary);
+const romHtml = (r) => (romOn() && r ? `<span class="rom">${r}</span>` : "");
 
 function renderExercise() {
   if (L.i >= L.queue.length) return finishLesson();
@@ -771,6 +828,7 @@ function renderExercise() {
     intro: renderIntro, meaning: renderMeaning, pickThai: renderPickThai, listen: renderListen, match: renderMatch,
     buildTh: renderBuild, buildEn: renderBuild, speak: renderSpeak, spell: renderSpell, typeEn: renderTypeEn,
     letterIntro: renderLetterIntro, letterSound: renderLetterSound, soundLetter: renderSoundLetter, trace: renderTrace,
+    storyStep: renderStoryStep, card: renderCard,
   }[ex.type];
   R(ex);
   window.scrollTo(0, 0);
@@ -864,7 +922,7 @@ function renderMeaning(ex) {
   const w = ex.word;
   choiceExercise(ex, {
     title: "What does this mean?",
-    prompt: `<div class="speech"><div class="mascot">🐘</div><div class="bubble">
+    prompt: `<div class="speech">${speakerFor(ex)}<div class="bubble">
       <button class="speak-btn" id="say">🔊</button>
       <div><span class="big-thai thai">${w.th}</span>${romHtml(w.rom)}</div></div></div>`,
     optionHtml: (o) => `<span>${esc(o.en)}</span>`,
@@ -884,6 +942,7 @@ function renderPickThai(ex) {
 // How much help "What do you hear?" gives when you tap an answer.
 // Beginners hear it and see the romanization; later units fade that out.
 function listenHelp(word) {
+  if (L && L.legendary) return "none";
   if (S.tapAudio === "always") return "audio";
   if (S.tapAudio === "never") return "none";
   return word.unit <= 1 ? "full" : word.unit <= 3 ? "audio" : "none";
@@ -898,10 +957,10 @@ function renderListen(ex) {
   const help = listenHelp(w);
   // While the answer is still a new word, every option shows its romanization (all or none,
   // so the answer never stands out). Once it's familiar: romanization only on tap (Units 1–2) or not at all.
-  const showAll = S.showRom && isNewWord(w);
+  const showAll = romOn() && isNewWord(w);
   const romFor = (o) => {
     if (showAll) return `<span class="rom tap-rom new-rom">${o.rom}</span>`;
-    return S.showRom && help === "full" ? `<span class="rom tap-rom hidden">${o.rom}</span>` : "";
+    return romOn() && help === "full" ? `<span class="rom tap-rom hidden">${o.rom}</span>` : "";
   };
   choiceExercise(ex, {
     title: "What do you hear?",
@@ -963,7 +1022,7 @@ function renderBuild(ex) {
   const tileInner = (t) => (isTh ? `<span class="thai">${t}</span>${romHtml(romOf(t))}` : esc(t));
   lessonShell(`
     <div class="prompt-title">${isTh ? "Write this in Thai" : "Translate this sentence"}</div>
-    <div class="speech"><div class="mascot">🐘</div><div class="bubble">
+    <div class="speech">${speakerFor(ex)}<div class="bubble">
       ${isTh ? "" : `<button class="speak-btn" id="say">🔊</button>`}
       <div>${isTh ? `<b style="font-size:20px">${promptText}</b>` : `<span class="big-thai thai">${promptText}</span>${romHtml(romLine(ex.tokens))}`}</div>
     </div></div>
@@ -1021,7 +1080,7 @@ function renderSpeak(ex) {
   const text = ex.tokens.join("");
   lessonShell(`
     <div class="prompt-title">Speak this out loud</div>
-    <div class="speech"><div class="mascot">🐘</div><div class="bubble">
+    <div class="speech">${speakerFor(ex)}<div class="bubble">
       <button class="speak-btn" id="say">🔊</button>
       <button class="speak-btn slow" id="slow">🐢</button>
       <div><span class="big-thai thai">${text}</span>${romHtml(romLine(ex.tokens))}<span class="en-hint">${esc(ex.en)}</span></div>
@@ -1105,6 +1164,7 @@ function renderSpeak(ex) {
 /* ----- Writing: spell the Thai word from letters ----- */
 // How much help to give: beginners get everything, later units fade it out.
 function spellHelp(word) {
+  if (L && L.legendary) return "light";
   if (S.spellHelp === "max") return "full";
   if (S.spellHelp === "min") return "light";
   return word.unit <= 1 ? "full" : word.unit <= 3 ? "some" : "light";
@@ -1128,7 +1188,7 @@ function renderTypeEn(ex) {
   const w = ex.word;
   lessonShell(`
     <div class="prompt-title">Type this in English</div>
-    <div class="speech"><div class="mascot">🐘</div><div class="bubble">
+    <div class="speech">${speakerFor(ex)}<div class="bubble">
       <button class="speak-btn" id="say">🔊</button>
       <div><span class="big-thai thai">${w.th}</span>${romHtml(w.rom)}</div>
     </div></div>
@@ -1157,10 +1217,14 @@ function feedback(right, ex, answerHtml, noAnswer, opts = {}) {
   const foot = $("#foot");
   if (right) {
     L.progress++;
+    L.combo = (L.combo || 0) + 1;
+    L.bestCombo = Math.max(L.bestCombo || 0, L.combo);
     beep("good");
     if (ex.word && ex.word.id) { S.known = S.known || {}; S.known[ex.word.id] = (S.known[ex.word.id] || 0) + 1; }
   } else {
     L.mistakes++;
+    L.combo = 0;
+    if (L.legendary) L.lives--;
     beep("bad");
     if (!L.practice && !opts.noPenalty) {
       if (S.hearts === MAX_HEARTS) S.heartTime = Date.now();
@@ -1178,18 +1242,22 @@ function feedback(right, ex, answerHtml, noAnswer, opts = {}) {
     }
   }
   save();
+  updateLessonTop();
+  const [rTh, rRom, rEn] = pick(right ? REACT_GOOD : REACT_BAD);
+  const host = CAST[hostKey(ex)];
   foot.className = `lesson-foot ${right ? "good" : "bad"}`;
   foot.innerHTML = `
     <div class="feedback">
-      <div class="icon">${right ? "✅" : "❌"}</div>
+      <div class="icon react-av">${host.avatar}</div>
       <div>
-        <h3>${right ? pick(PRAISE) : "Not quite…"}</h3>
+        <h3><span class="thai">${rTh}</span> ${right ? rEn : "Not quite…"}</h3>
         ${noAnswer ? "" : `<div class="answer">${right ? "" : "Correct answer:<br/>"}${answerHtml}</div>`}
       </div>
     </div>
     <button class="btn ${right ? "good" : "bad"}" id="next">Continue</button>`;
   $("#next").focus();
   $("#next").onclick = () => {
+    if (L.legendary && L.lives <= 0) return legendaryFailed();
     if (!L.practice && S.hearts <= 0) {
       L = null; renderHome();
       return outOfHearts();
@@ -1197,16 +1265,31 @@ function feedback(right, ex, answerHtml, noAnswer, opts = {}) {
     L.i++;
     renderExercise();
   };
-  // update hearts display
+}
+
+// Progress bar, combo badge and lives update in place (so the bar animates)
+function updateLessonTop() {
+  const bar = app.querySelector(".lesson-top .bar");
+  if (!bar) return;
+  bar.firstElementChild.style.width = Math.round((L.progress / L.total) * 100) + "%";
+  bar.classList.toggle("hot", L.combo >= 3);
+  const c = $("#combo");
+  if (c) {
+    c.textContent = `🔥 ${L.combo} in a row!`;
+    c.classList.toggle("hidden", L.combo < 3);
+    if (L.combo >= 3) { c.classList.remove("pop"); void c.offsetWidth; c.classList.add("pop"); }
+  }
   const h = app.querySelector(".lesson-top .hearts");
   if (h) h.textContent = `❤️ ${S.hearts}`;
+  const lv = app.querySelector(".lesson-top .lives");
+  if (lv) lv.textContent = `👑 ${Math.max(0, L.lives)}`;
 }
 
 /* ----- Finish ----- */
 function finishLesson() {
   releaseCanvases();
   const accuracy = L.answered ? Math.round(((L.answered - L.mistakes) / L.answered) * 100) : 100;
-  let xp = L.practice ? 10 : 15;
+  let xp = L.legendary ? 30 : L.practice ? 10 : 15;
   if (L.mistakes === 0) xp += 5;
   const prevDay = S.lastDay;
   if (prevDay !== today()) { S.streak = prevDay === yesterday() ? S.streak + 1 : 1; S.lastDay = today(); }
@@ -1214,7 +1297,17 @@ function finishLesson() {
   S.todayXp += xp;
   S.lessonsCompleted++;
   let extra = "";
-  if (L.letterSet != null) {
+  if (L.story != null) {
+    const firstTime = !S.stories[L.story];
+    S.stories[L.story] = true;
+    extra = firstTime ? `📖 Story “${STORIES[L.story].title}” complete!` : "";
+  } else if (L.legendary) {
+    const firstTime = !S.legend[L.u];
+    S.legend[L.u] = true;
+    extra = firstTime ? `👑 Unit ${L.u + 1} is now Legendary!` : "👑 Still legendary!";
+  } else if (L.cards) {
+    extra = `🃏 ${L.cardsSeen} phrases reviewed`;
+  } else if (L.letterSet != null) {
     const firstTime = !S.lsets[L.letterSet];
     S.lsets[L.letterSet] = true;
     extra = firstTime ? `🎉 ${LETTER_SETS[L.letterSet].letters.map((l) => l.ch).join(" ")} learned!` : "";
@@ -1230,21 +1323,38 @@ function finishLesson() {
   confetti();
   const speakAvg = L.speakScores.length ? Math.round((L.speakScores.reduce((a, b) => a + b, 0) / L.speakScores.length) * 100) : null;
   const msgs = ["Lesson complete!", "เยี่ยมมาก! Amazing!", "You're on fire!", "Keep it up!"];
+  const host = CAST[L.u != null ? UNIT_HOST[L.u] : L.story != null ? UNIT_HOST[L.story] : "chang"];
+  const [cTh, cRom, cEn] = pick(REACT_GOOD);
   app.innerHTML = `
     <div class="result">
-      <div class="mascot">🐘</div>
-      <h1>${L.letterSet != null ? "Letters complete!" : L.drill === "hand" ? "Handwriting drill complete!" : L.drill === "write" ? "Writing drill complete!" : L.drill ? "Speaking drill complete!" : L.practice ? "Practice complete!" : pick(msgs)}</h1>
+      <div class="result-cast"><span class="mascot">${host.avatar}</span><div class="bubble"><span class="thai">${cTh}</span> <small>${cRom} · ${cEn}</small></div></div>
+      <h1>${L.story != null ? "Story complete!" : L.legendary ? "Legendary!" : L.cards ? "Cards done!" : L.letterSet != null ? "Letters complete!" : L.drill === "hand" ? "Handwriting drill complete!" : L.drill === "write" ? "Writing drill complete!" : L.drill ? "Speaking drill complete!" : L.practice ? "Practice complete!" : pick(msgs)}</h1>
       ${extra ? `<b>${extra}</b>` : ""}
       <div class="result-stats">
-        <div class="result-stat"><div class="label">Total XP</div><div class="value">⭐ ${xp}</div></div>
-        <div class="result-stat acc"><div class="label">Accuracy</div><div class="value">🎯 ${accuracy}%</div></div>
+        <div class="result-stat"><div class="label">Total XP</div><div class="value">⭐ <span data-count="${xp}">0</span></div></div>
+        <div class="result-stat acc"><div class="label">Accuracy</div><div class="value">🎯 <span data-count="${accuracy}">0</span>%</div></div>
         <div class="result-stat streak-s"><div class="label">Streak</div><div class="value">🔥 ${S.streak}</div></div>
         ${speakAvg !== null ? `<div class="result-stat speak-s"><div class="label">Speaking</div><div class="value">🎤 ${speakAvg}%</div></div>` : ""}
       </div>
+      ${(L.bestCombo || 0) >= 3 ? `<div class="best-combo">🔥 Best combo: ${L.bestCombo} in a row</div>` : ""}
       <button class="btn" id="cont">Continue</button>
     </div>`;
-  const backTo = L.letterSet != null || L.drill === "hand" ? "letters" : "learn";
+  countUp();
+  const backTo = L.letterSet != null || L.drill === "hand" ? "letters" : L.cards ? "words" : "learn";
   $("#cont").onclick = () => { L = null; renderHome.scrolled = false; tab = backTo; renderHome(); window.scrollTo(0, 0); applyUpdateIfIdle(); };
+}
+
+// Numbers on the results screen count up
+function countUp() {
+  app.querySelectorAll("[data-count]").forEach((el) => {
+    const target = +el.dataset.count, t0 = performance.now(), dur = 700;
+    const step = (t) => {
+      const k = Math.min(1, (t - t0) / dur);
+      el.textContent = Math.round(target * (1 - Math.pow(1 - k, 3)));
+      if (k < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
 }
 
 /* ---------- Keyboard: Enter = check/continue, 1-4 = choose ---------- */
