@@ -283,11 +283,6 @@ button { font: inherit; cursor: pointer; border: none; background: none; color: 
 .drill-btn:active { box-shadow: 0 1px 0 #6d28d9; }
 
 /* ---------- Writing ---------- */
-.spell-line {
-  min-height: 84px; border: 2px dashed var(--line); border-radius: 16px; background: var(--card);
-  display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px; padding: 10px; margin-bottom: 24px;
-}
-.spell-hint { color: var(--muted); font-size: 15px; }
 .tile.letter { min-width: 52px; min-height: 58px; padding: 6px 10px; }
 .tile.letter .thai { font-size: 28px; }
 .type-box {
@@ -430,47 +425,6 @@ button, .tile, .choice, .node { touch-action: manipulation; -webkit-user-select:
 /* ---------- Listening help ---------- */
 .tap-hint { text-align: center; color: var(--muted); font-size: 14px; margin: -16px 0 16px; }
 .choice .tap-rom { display: block; font-size: 13px; }
-
-/* ---------- Spelling help ---------- */
-.spell-line { gap: 6px; }
-.spell-line .slot {
-  width: 52px; height: 62px; border: 2px dashed #cbd5e1; border-radius: 12px; background: var(--bg);
-}
-.tile .tile-sound { display: block; font-size: 11px; color: var(--muted); font-weight: 700; margin-top: 1px; }
-.spell-help-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: -12px 0 16px; }
-.spell-msg { color: var(--muted); font-size: 14px; }
-.hint-btn {
-  flex-shrink: 0; border: 2px solid #fcd34d; background: #fef3c7; color: #92400e; font-weight: 800;
-  border-radius: 12px; padding: 7px 12px; font-size: 14px; box-shadow: 0 3px 0 #fcd34d;
-}
-.hint-btn:active { transform: translateY(2px); box-shadow: none; }
-.tile.hint-glow { border-color: #f59e0b; box-shadow: 0 3px 0 #f59e0b; animation: hint-pulse .9s ease-in-out infinite; }
-.tile.hint-wrong { border-color: var(--bad); background: var(--bad-bg); animation: shake .3s; }
-@keyframes hint-pulse { 50% { transform: scale(1.1); } }
-.tile.used .tile-sound { color: transparent; }
-.choice .new-rom { color: var(--brand-dark); font-style: normal; font-weight: 700; }
-
-/* ---------- Syllable speller ---------- */
-.sb-word {
-  display: flex; justify-content: center; align-items: baseline; gap: 2px; flex-wrap: wrap;
-  font-size: 44px; line-height: 1.35; min-height: 70px; margin: -6px 0 2px;
-  font-family: Thonburi, "Noto Sans Thai Looped", var(--thai);
-}
-.sb-word .sb-done { color: var(--ink); }
-.sb-word .sb-cur { color: var(--brand); border-bottom: 3px solid var(--brand); padding: 0 2px; }
-.sb-word .sb-todo { color: #cbd5e1; }
-.sb-syls { display: flex; justify-content: center; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; font-size: 15px; color: var(--muted); }
-.sb-syls span { padding: 2px 8px; border-radius: 99px; }
-.sb-syls span.on { background: var(--brand); color: #fff; font-weight: 800; }
-.sb-syls span.done { color: var(--ink); font-weight: 700; }
-.sb-syls i { font-style: normal; color: #cbd5e1; }
-.sb-step { margin-bottom: 12px; font-size: 17px; line-height: 1.35; }
-.sb-badge { display: block; font-size: 12px; font-weight: 800; color: var(--brand-dark); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 3px; }
-.sb-choice .thai { font-size: 34px; line-height: 1.3; font-family: Thonburi, "Noto Sans Thai Looped", var(--thai); }
-.sb-choice .tap-rom { font-size: 13px; }
-.sb-notes { margin-top: 14px; display: grid; gap: 8px; }
-.sb-note { background: #fef9c3; border: 2px solid #fde68a; border-radius: 12px; padding: 9px 12px; font-size: 14px; line-height: 1.4; animation: up .25s ease; }
-.sb-note .thai { font-size: 18px; }
 
 /* =========================================================
    2.0 — modern look & motion

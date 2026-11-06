@@ -9,7 +9,7 @@ const HEART_REFILL_MS = 30 * 60 * 1000; // one heart every 30 minutes
 const DAILY_GOAL = 30;
 const LESSONS_PER_UNIT = 3;
 const STORE_KEY = "thai-lingo-v1";
-const APP_VERSION = "2.0"; // shown in Profile; bump with CACHE in sw.js
+const APP_VERSION = "2.1"; // shown in Profile; bump with CACHE in sw.js
 
 /* ---------- Content index ---------- */
 const WORDS = [];
@@ -44,8 +44,7 @@ const DEFAULT_STATE = {
   showRom: true,
   sound: true,
   speakOn: true,       // speaking exercises enabled
-  tapAudio: "auto",
-  spellHelp: "auto",   // "Spell it in Thai" help: auto fades out in later units    // "What do you hear": play the answer you tap (auto = fades out in later units)
+  tapAudio: "auto",    // "What do you hear": play the answer you tap (auto = fades out in later units)
   speakOffUntil: 0,    // "Can't speak now" pauses them until this time
   lessonsCompleted: 0,
 };
@@ -391,7 +390,6 @@ function thaiClusters(s) {
 }
 // Words with a plain meaning (not grammar particles like “polite ending (male)”)
 const plainMeaning = (w) => !/\((?!\d)/.test(w.en);
-// canSpell, spellExercise, easiestFirst: see spelling.js
 
 function speakWordExercise(word) {
   return { type: "speak", word, tokens: [word.th], en: word.en, targets: [[word.th]] };
@@ -406,9 +404,7 @@ function wordExercise(word, pool, forceType) {
   const types = ["meaning", "pickThai"];
   if (hasAudio()) types.push("listen");
   if (S.seen[word.id] && plainMeaning(word)) types.push("typeEn");
-  if (S.seen[word.id] && canSpell(word)) types.push("spell");
   const type = forceType || pick(types);
-  if (type === "spell") return spellExercise(word);
   if (type === "typeEn") return { type, word };
   // Prefer distractors from same unit, then fall back to whole course
   let ds = distractors(word, 3, pool);
@@ -461,9 +457,6 @@ function buildLesson(u, l) {
   focus.forEach((w) => practice.push(wordExercise(w, words)));
   if (l > 0) shuffle(words).slice(0, 3).forEach((w) => practice.push(wordExercise(w, words)));
   sentences.forEach((s) => practice.push(sentenceExercise(s, u)));
-  // Writing: every lesson spells at least one word in Thai letters
-  const spellable = easiestFirst(focus.filter(canSpell));
-  if (spellable.length) practice.push(spellExercise(pick(spellable.slice(0, 2))));
   // Speaking: say 2 words out loud, plus a sentence after the first lesson
   if (canSpeak()) {
     shuffle(focus.filter(plainMeaning)).slice(0, 2).forEach((w) => practice.push(speakWordExercise(w)));
@@ -476,19 +469,14 @@ function buildLesson(u, l) {
   return queue;
 }
 
-// Writing-only drill: spell words in Thai letters, type meanings, build Thai sentences
+// Writing-only drill: type meanings in English and build Thai sentences
 function buildWriteDrill() {
   const learned = WORDS.filter((w) => S.seen[w.id]);
   if (learned.length < 3) return null;
   const queue = [];
-  // spelling: mostly the easier words you know, plus one stretch word
-  const sp = easiestFirst(learned.filter(canSpell));
-  shuffle(sp.slice(0, Math.max(4, Math.ceil(sp.length / 2)))).slice(0, 3).forEach((w) => queue.push(spellExercise(w)));
-  const stretch = sp.slice(Math.ceil(sp.length / 2)).filter((w) => !queue.some((e) => e.word === w));
-  if (stretch.length) queue.push(spellExercise(pick(stretch)));
-  shuffle(learned.filter(plainMeaning)).slice(0, 3).forEach((w) => queue.push({ type: "typeEn", word: w }));
+  shuffle(learned.filter(plainMeaning)).slice(0, 5).forEach((w) => queue.push({ type: "typeEn", word: w }));
   const units = [...new Set(learned.map((w) => w.unit))];
-  shuffle(units.flatMap((u) => COURSE[u].sentences.map((s) => [s, u]))).slice(0, 3)
+  shuffle(units.flatMap((u) => COURSE[u].sentences.map((s) => [s, u]))).slice(0, 4)
     .forEach(([s, u]) => queue.push(sentenceExercise(s, u, "buildTh")));
   return shuffle(queue);
 }
@@ -685,7 +673,7 @@ function wordsView() {
     <button class="cards-cta" id="cards"><span class="cards-ico">🃏</span><span><b>Phrase cards</b><small>${cardsDueLabel()}</small></span><span class="cards-go">›</span></button>
     <div class="drills">
       <button class="drill-card speak" id="drill"><span>🎤</span><b>Speaking drill</b><small>Say your words, get a pronunciation score</small></button>
-      <button class="drill-card write" id="wdrill"><span>✍️</span><b>Writing drill</b><small>Spell in Thai letters and build sentences</small></button>
+      <button class="drill-card write" id="wdrill"><span>✍️</span><b>Writing drill</b><small>Type meanings and build Thai sentences</small></button>
     </div>`;
   COURSE.forEach((unit, u) => {
     const ws = learned.filter((w) => w.unit === u);
@@ -718,7 +706,6 @@ function profileView() {
     <div class="setting"><div><b>Romanization</b><small>Show pronunciation under Thai script</small></div>${seg("showRom", [["true", "On"], ["false", "Off"]])}</div>
     <div class="setting"><div><b>Speaking exercises</b><small>${!speakSupported() ? "Not supported in this browser — use Chrome or Safari" : S.speakOffUntil > Date.now() ? `Paused for ${Math.ceil((S.speakOffUntil - Date.now()) / 60000)} more min (“Can't speak now”)` : "Say words out loud and get your pronunciation checked"}</small></div>${seg("speakOn", [["true", "On"], ["false", "Off"]])}</div>
     <div class="setting"><div><b>Hear answers you tap</b><small>In “What do you hear?”. Auto: on (with romanization) in Units 1–2, sound only in Units 3–4, off after that.</small></div>${seg("tapAudio", [["auto", "Auto"], ["always", "On"], ["never", "Off"]])}</div>
-    <div class="setting"><div><b>Spelling help</b><small>In “Spell it in Thai”. Auto: Units 1–2 only offer choices that sound different, with sound labels; Units 3–4 add sound-alike letters (ส/ศ/ษ); Units 5+ hide the sound labels.</small></div>${seg("spellHelp", [["auto", "Auto"], ["max", "Max"], ["min", "Min"]])}</div>
     <div class="setting"><div><b>Sound effects</b><small>Correct/wrong sounds and the lesson-complete fanfare. They play even in Silent mode — turn them off here if you'd rather not.</small></div>${seg("sound", [["true", "On"], ["false", "Off"]])}</div>
     <div class="setting"><div><b>Thai voice</b><small>${hasAudio() ? `Using: ${esc(thaiVoice.name)}` : "Not found — listening exercises off"}</small></div><button class="speak-btn" data-say="สวัสดีครับ">🔊</button></div>
     <div class="setting"><div><b>App version ${APP_VERSION}</b><small>Updates install automatically. Tap if something looks out of date — your progress is kept.</small></div><button id="update" class="btn" style="width:auto;padding:8px 12px;font-size:13px">Check for updates</button></div>
@@ -826,7 +813,7 @@ function renderExercise() {
   stopRecognizing();
   const R = {
     intro: renderIntro, meaning: renderMeaning, pickThai: renderPickThai, listen: renderListen, match: renderMatch,
-    buildTh: renderBuild, buildEn: renderBuild, speak: renderSpeak, spell: renderSpell, typeEn: renderTypeEn,
+    buildTh: renderBuild, buildEn: renderBuild, speak: renderSpeak, typeEn: renderTypeEn,
     letterIntro: renderLetterIntro, letterSound: renderLetterSound, soundLetter: renderSoundLetter, trace: renderTrace,
     storyStep: renderStoryStep, card: renderCard,
   }[ex.type];
@@ -1160,17 +1147,6 @@ function renderSpeak(ex) {
     renderExercise();
   };
 }
-
-/* ----- Writing: spell the Thai word from letters ----- */
-// How much help to give: beginners get everything, later units fade it out.
-function spellHelp(word) {
-  if (L && L.legendary) return "light";
-  if (S.spellHelp === "max") return "full";
-  if (S.spellHelp === "min") return "light";
-  return word.unit <= 1 ? "full" : word.unit <= 3 ? "some" : "light";
-}
-
-// "Spell it in Thai" lives in spelling.js (syllable-by-syllable speller).
 
 /* ----- Writing: type the meaning in English ----- */
 function meaningsOf(en) {
